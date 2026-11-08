@@ -11,7 +11,7 @@ package com.example.wuwaaccelerator
 internal object ForegroundPackageParser {
 
     private val packagePattern =
-        Regex("""(?:\\bu\\d+\\s+)?([A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+)/""")
+        Regex("""(?:\bu\d+\s+)?([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)/""")
 
     fun parse(lines: List<String>): String? {
         val candidates = lines

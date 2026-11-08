@@ -22,7 +22,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         // Initial test floor: one available step above 648 MHz on this device.
         // Thermal limits remain under kernel / vendor control.
-        private const val BOOST_MIN_FREQ = "750000"
+        private const val BOOST_MIN_FREQ = GpuFrequencyPolicy.BOOST_MIN_FREQ
 
         private const val POLL_INTERVAL_MS = 1500L
         private const val UNKNOWN_RESTORE_SAMPLES = 3
