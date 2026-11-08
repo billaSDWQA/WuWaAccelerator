@@ -51,6 +51,10 @@ class GpuAdaptivePolicyTest {
             GpuAdaptivePolicy.chooseTarget(0, 95, MemoryPressure.NORMAL)
         )
         assertEquals(
+            GpuAdaptivePolicy.ULTRA_FLOOR,
+            GpuAdaptivePolicy.chooseTarget(0, 98, MemoryPressure.NORMAL)
+        )
+        assertEquals(
             GpuAdaptivePolicy.MID_FLOOR,
             GpuAdaptivePolicy.chooseTarget(0, 75, MemoryPressure.NORMAL)
         )
@@ -76,7 +80,7 @@ class GpuAdaptivePolicyTest {
         assertEquals(
             GpuAdaptivePolicy.MID_FLOOR,
             GpuAdaptivePolicy.supportedTarget(
-                GpuAdaptivePolicy.HIGH_FLOOR,
+                GpuAdaptivePolicy.ULTRA_FLOOR,
                 "1300000",
                 setOf("750000", "864000", "1300000")
             )
