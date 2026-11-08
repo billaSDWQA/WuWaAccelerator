@@ -24,7 +24,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         // Thermal interaction is device-dependent; this code does not write thermal nodes.
         private const val BOOST_MIN_FREQ = GpuFrequencyPolicy.BOOST_MIN_FREQ
 
-        private const val POLL_INTERVAL_MS = 1500L
+        private const val POLL_INTERVAL_MS = 3000L
         private const val UNKNOWN_RESTORE_SAMPLES = 3
         private const val EXIT_RESTORE_SAMPLES = 2
     }
@@ -236,8 +236,12 @@ class GpuUserService : IAcceleratorService.Stub() {
             }
             Os.chmod(backupDirectory.absolutePath, 448) // 0700
 
+            // Stream only the resumed-activity record instead of capturing the
+            // complete (potentially large) ActivityManager dump every poll.
+            // Prefer topResumedActivity; retain one legacy mResumedActivity line
+            // as a fallback for Android builds that do not expose the newer field.
             val command =
-                "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'"
+                "dumpsys activity activities | awk '/topResumedActivity/ { print; found=1; exit } /mResumedActivity/ && legacy==\"\" { legacy=\$0 } END { if (!found && legacy!=\"\") print legacy }"
             val process = ProcessBuilder("sh", "-c", command)
                 .redirectErrorStream(true)
                 .redirectOutput(foregroundOutput)
