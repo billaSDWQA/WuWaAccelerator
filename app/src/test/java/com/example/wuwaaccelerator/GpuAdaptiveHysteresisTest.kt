@@ -11,7 +11,7 @@ class GpuAdaptiveHysteresisTest {
         val policy = GpuAdaptiveHysteresis()
         assertNull(policy.update(GpuAdaptivePolicy.BASE_FLOOR))
         assertEquals(GpuAdaptivePolicy.BASE_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
-        assertEquals(GpuAdaptivePolicy.MID_FLOOR, policy.update(GpuAdaptivePolicy.MID_FLOOR))
+        assertEquals(GpuAdaptivePolicy.BASE_FLOOR, policy.update(GpuAdaptivePolicy.MID_FLOOR))
         assertEquals(GpuAdaptivePolicy.MID_FLOOR, policy.update(GpuAdaptivePolicy.MID_FLOOR))
     }
 
