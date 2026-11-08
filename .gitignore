@@ -1,0 +1,29 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Additional build and local files
+**/build/
+.kotlin/
+*.jks
+*.keystore
+*.p12
+keystore.properties
+secrets.properties
+.env
+.env.*
+
+# Android Studio IDE files
+/.idea/
