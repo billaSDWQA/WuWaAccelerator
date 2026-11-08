@@ -1,27 +1,92 @@
 package com.example.wuwaaccelerator
 
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.IBinder
 import android.widget.Button
-import android.widget.Toast
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import rikka.shizuku.Shizuku
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
-    private val REQUEST_CODE = 1001
-    private val GAME_PACKAGE = "com.kurogame.wutheringwaves.global"
+    companion object {
+        private const val REQUEST_SHIZUKU_PERMISSION = 1207
+    }
 
-    private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-        if (requestCode == REQUEST_CODE) {
-            if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                showToast("Shizuku 授權成功！請再次點擊按鈕")
-            } else {
-                showToast("你拒絕了授權，無法執行優化")
+    private lateinit var statusView: TextView
+    private var acceleratorService: IAcceleratorService? = null
+    private var serviceBound = false
+    private var bindingInProgress = false
+
+    private val userServiceArgs by lazy {
+        Shizuku.UserServiceArgs(
+            ComponentName(packageName, GpuUserService::class.java.name)
+        )
+            .daemon(true)
+            .processNameSuffix("accelerator")
+            .version(1)
+    }
+
+    private val permissionResultListener =
+        Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+            if (requestCode == REQUEST_SHIZUKU_PERMISSION) {
+                if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                    connectAndStart()
+                } else {
+                    showStatus("Shizuku 權限遭拒絕；沒有修改任何 GPU 設定")
+                }
             }
+        }
+
+    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
+        runOnUiThread { connectAndStart() }
+    }
+
+    private val binderDeadListener = Shizuku.OnBinderDeadListener {
+        runOnUiThread {
+            acceleratorService = null
+            serviceBound = false
+            bindingInProgress = false
+            showStatus("Shizuku 連線中斷；若先前有加速，備份仍保留在服務端")
+        }
+    }
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            bindingInProgress = false
+            if (binder == null) {
+                serviceBound = false
+                showStatus("Shizuku 服務回傳空連線")
+                return
+            }
+
+            serviceBound = true
+            val remote = IAcceleratorService.Stub.asInterface(binder)
+            acceleratorService = remote
+
+            thread(name = "WuWa-Service-Connect") {
+                val started = runCatching { remote.startMonitoring() }.getOrDefault(false)
+                val currentStatus = runCatching { remote.getStatus() }
+                    .getOrElse { "無法讀取加速服務狀態：${it.message}" }
+
+                runOnUiThread {
+                    showStatus(
+                        if (started) currentStatus
+                        else "自動偵測未能啟動：$currentStatus"
+                    )
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            acceleratorService = null
+            serviceBound = false
+            bindingInProgress = false
+            showStatus("GPU 控制服務已中斷；請確認 Shizuku 是否仍在執行")
         }
     }
 
@@ -29,125 +94,136 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        Shizuku.addRequestPermissionResultListener(permissionListener)
+        statusView = findViewById(R.id.tv_status)
+        findViewById<Button>(R.id.btn_start).setOnClickListener { connectAndStart() }
+        findViewById<Button>(R.id.btn_stop).setOnClickListener { stopAndRestore() }
 
-        val btnBoost = findViewById<Button>(R.id.btn_boost)
-        val btnRestore = findViewById<Button>(R.id.btn_restore)
+        Shizuku.addRequestPermissionResultListener(permissionResultListener)
+        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
+        Shizuku.addBinderDeadListener(binderDeadListener)
 
-        btnBoost.setOnClickListener {
-            if (checkShizukuPermission()) executeExtremeBoost()
-            else Shizuku.requestPermission(REQUEST_CODE)
+        if (Shizuku.pingBinder()) {
+            connectAndStart()
+        } else {
+            showStatus("請先啟動 Shizuku，然後按「啟動自動加速」")
         }
+    }
 
-        btnRestore.setOnClickListener {
-            if (checkShizukuPermission()) executeRestore()
-            else Shizuku.requestPermission(REQUEST_CODE)
-        }
+    override fun onResume() {
+        super.onResume()
+        refreshStatus()
     }
 
     override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(permissionResultListener)
+        Shizuku.removeBinderReceivedListener(binderReceivedListener)
+        Shizuku.removeBinderDeadListener(binderDeadListener)
+
+        // The UserService is a daemon so monitoring continues while the game is open.
+        // Unbind this Activity's callback without destroying the remote service.
+        if (serviceBound || bindingInProgress) {
+            runCatching {
+                Shizuku.unbindUserService(userServiceArgs, serviceConnection, false)
+            }
+        }
+
         super.onDestroy()
-        Shizuku.removeRequestPermissionResultListener(permissionListener)
     }
 
-    private fun checkShizukuPermission(): Boolean {
-        return if (Shizuku.isPreV11()) false
-        else Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    }
+    private fun connectAndStart() {
+        if (!Shizuku.pingBinder()) {
+            showStatus("Shizuku 尚未啟動；未修改任何設定")
+            return
+        }
 
-    // ================= 核心：終極安全穩定版 =================
-    private fun executeExtremeBoost() {
-        thread {
-            val pid = getGamePid()
-            if (pid.isEmpty() || pid == "0") {
-                runOnUiThread { showToast("⚠️ 未檢測到遊戲運行，請先打開鳴潮！") }
-                return@thread
+        if (Shizuku.isPreV11()) {
+            showStatus("目前 Shizuku 版本過舊，請更新 Shizuku")
+            return
+        }
+
+        val permissionGranted = try {
+            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        } catch (exception: Exception) {
+            showStatus("無法檢查 Shizuku 權限：${exception.message}")
+            return
+        }
+
+        if (!permissionGranted) {
+            showStatus("等待 Shizuku 授權")
+            runCatching { Shizuku.requestPermission(REQUEST_SHIZUKU_PERMISSION) }
+                .onFailure { showStatus("無法請求 Shizuku 權限：${it.message}") }
+            return
+        }
+
+        val currentService = acceleratorService
+        if (serviceBound && currentService != null) {
+            thread(name = "WuWa-Service-Start") {
+                val started = runCatching { currentService.startMonitoring() }.getOrDefault(false)
+                val currentStatus = runCatching { currentService.getStatus() }
+                    .getOrElse { "服務錯誤：${it.message}" }
+                runOnUiThread {
+                    showStatus(
+                        if (started) currentStatus
+                        else "自動偵測未能啟動：$currentStatus"
+                    )
+                }
             }
-
-            val boostCommands = mutableListOf(
-                // 1. 記憶體溫和清理（只殺後台與暫存，絕不碰系統進程數）
-                "am kill-all",
-                "pm trim-caches 99999999999G",
-
-                // 2. 觸發官方遊戲模式（由系統底層調度，拒絕第三方暴力鎖頻）
-                "cmd game mode performance $GAME_PACKAGE",
-
-                // 3. 網路加速（你實測 36~61ms 的神級代碼，保留）
-                "settings put global private_dns_mode hostname",
-                "settings put global private_dns_specifier dns.google",
-
-                // 4. 【新發現】強制 AOT 編譯遊戲（把遊戲代碼預先翻譯成機器碼，減少遊戲中的即時編譯卡頓）
-                "cmd package compile -m speed -f $GAME_PACKAGE",
-
-                // 5. 螢幕與 UI 減負（關閉毛玻璃與動畫，節省 GPU 算力）
-                // 注意：保留 120Hz 是為了觸控採樣率。若覺得太耗電，可把 120.0 改為 60.0
-                "settings put system peak_refresh_rate 120.0",
-                "settings put system min_refresh_rate 120.0",
-                "settings put global disable_window_blurs 1",
-                "settings put global window_animation_scale 0.0",
-                "settings put global transition_animation_scale 0.0",
-                "settings put global animator_duration_scale 0.0"
-
-                // ❌ 徹底刪除：renice, schedutil, oom_score_adj 等會觸發系統反殺的毒瘤
-            )
-
-            runShellCommands(boostCommands)
-            runOnUiThread { showToast("🔥 官方遊戲模式已啟動！AOT 預編譯完成！") }
+            return
         }
-    }
 
-    // ================= 核心：恢復日常 =================
-    private fun executeRestore() {
-        thread {
-            val restoreCommands = listOf(
-                "cmd game mode standard $GAME_PACKAGE",
-                "settings put global private_dns_mode off",
-                "settings put system min_refresh_rate 60.0",
-                "settings put global disable_window_blurs 0",
-                "settings put global window_animation_scale 1.0",
-                "settings put global transition_animation_scale 1.0",
-                "settings put global animator_duration_scale 1.0"
-            )
-            runShellCommands(restoreCommands)
-            runOnUiThread { showToast("🛡️ 已恢復日常模式！系統限制已解除") }
-        }
-    }
+        if (bindingInProgress) return
 
-    // 輔助方法：獲取遊戲 PID
-    private fun getGamePid(): String {
-        return try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val newProcessMethod = shizukuClass.getDeclaredMethod(
-                "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
-            )
-            newProcessMethod.isAccessible = true
-            val process = newProcessMethod.invoke(null, arrayOf("sh", "-c", "pidof $GAME_PACKAGE"), null, null) as rikka.shizuku.ShizukuRemoteProcess
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val pid = reader.readLine()?.trim() ?: ""
-            reader.close()
-            process.waitFor()
-            process.destroy()
-            pid
-        } catch (e: Exception) { "" }
-    }
-
-    // 輔助方法：透過反射執行 Shizuku 指令
-    private fun runShellCommands(commands: List<String>) {
+        bindingInProgress = true
+        showStatus("正在連接 Shizuku GPU 控制服務…")
         try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val newProcessMethod = shizukuClass.getDeclaredMethod(
-                "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
-            )
-            newProcessMethod.isAccessible = true
-            for (cmd in commands) {
-                val remoteProcess = newProcessMethod.invoke(null, arrayOf("sh", "-c", cmd), null, null) as rikka.shizuku.ShizukuRemoteProcess
-                remoteProcess.waitFor()
-                remoteProcess.destroy()
-            }
-        } catch (e: Exception) {}
+            Shizuku.bindUserService(userServiceArgs, serviceConnection)
+        } catch (exception: Exception) {
+            bindingInProgress = false
+            serviceBound = false
+            showStatus("連接 Shizuku 服務失敗：${exception.message}")
+        }
     }
 
-    private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    private fun stopAndRestore() {
+        val remote = acceleratorService
+        if (!serviceBound || remote == null) {
+            showStatus("目前沒有連線中的加速服務")
+            return
+        }
+
+        showStatus("正在停止監控並還原 GPU 原始設定…")
+        thread(name = "WuWa-Service-Stop") {
+            val restored = runCatching { remote.stopAndRestore() }.getOrDefault(false)
+            val currentStatus = runCatching { remote.getStatus() }
+                .getOrElse { "無法讀取還原結果：${it.message}" }
+
+            runOnUiThread {
+                showStatus(currentStatus)
+                if (restored) {
+                    runCatching {
+                        Shizuku.unbindUserService(userServiceArgs, serviceConnection, true)
+                    }
+                    acceleratorService = null
+                    serviceBound = false
+                    bindingInProgress = false
+                } else {
+                    showStatus("$currentStatus；服務與備份保留，會繼續嘗試還原")
+                }
+            }
+        }
+    }
+
+    private fun refreshStatus() {
+        val remote = acceleratorService ?: return
+        thread(name = "WuWa-Service-Status") {
+            val currentStatus = runCatching { remote.getStatus() }.getOrNull() ?: return@thread
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) showStatus(currentStatus)
+            }
+        }
+    }
+
+    private fun showStatus(message: String) {
+        if (::statusView.isInitialized) statusView.text = message
     }
 }
