@@ -2,7 +2,7 @@
 
 這是一個針對 **Samsung Galaxy A55 5G（SM-A5560／Exynos 1480／Xclipse 530）** 的 Shizuku 工具。它只嘗試調整一個 GPU devfreq 節點，不修改 CPU、記憶體、網路、螢幕刷新率或遊戲檔案。
 
-> **目前定位：可編譯的測試版。** GitHub Actions 已成功產生 Debug APK；Shizuku 在 A55 上是否能寫入該節點、遊戲前景辨識是否符合該韌體輸出，以及長時間遊戲幀率是否改善，仍需實機驗證。
+> **目前定位：可編譯的測試版（0.5.0）。** GitHub Actions 已成功產生 Debug APK；Shizuku 在 A55 上是否能寫入該節點、遊戲前景辨識是否符合該韌體輸出，以及長時間遊戲幀率是否改善，仍需實機驗證。
 
 ## 功能範圍
 
