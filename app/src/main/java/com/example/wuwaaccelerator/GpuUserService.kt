@@ -190,8 +190,14 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        if (original == BOOST_MIN_FREQ) {
-            status = "GPU 最低頻率原本已是 750 MHz，無需修改"
+        val originalFrequency = original.toLongOrNull()
+        val requestedFrequency = BOOST_MIN_FREQ.toLong()
+        if (originalFrequency == null) {
+            status = "GPU 原始最低頻率格式無效；未修改任何設定"
+            return
+        }
+        if (originalFrequency >= requestedFrequency) {
+            status = "GPU 原始最低頻率已達或高於 750 MHz；保留原設定，不降低 GPU 下限"
             return
         }
 
