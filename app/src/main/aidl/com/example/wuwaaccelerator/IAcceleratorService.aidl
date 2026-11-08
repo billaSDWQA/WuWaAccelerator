@@ -1,10 +1,10 @@
 package com.example.wuwaaccelerator;
 
 interface IAcceleratorService {
-    boolean startMonitoring();
-    boolean stopAndRestore();
-    String getStatus();
+    boolean startMonitoring() = 1;
+    boolean stopAndRestore() = 2;
+    String getStatus() = 3;
 
-    // Reserved transaction used by the Shizuku server when destroying UserService.
+    // Shizuku UserService destroy transaction (AIDL-side code).
     void destroy() = 16777114;
 }
