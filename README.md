@@ -15,7 +15,7 @@
 ## 0.6.0 重構重點
 
 - 啟動時確認 Shizuku UserService 身分為 shell UID 2000 或 root UID 0，其他身分拒絕寫入。
-- 直接執行 `/system/bin/dumpsys activity activities`，並同時保留新版及舊版 resumed-activity 欄位，避免 Shell 管線提前退出造成漏判。
+- 使用不帶提前退出條件的 `grep` 擷取 `dumpsys activity activities` 中的新舊 resumed-activity 欄位，再由解析器優先判讀新版、失敗時回退舊版。
 - 前景命令逾時、命令失敗、解析失敗分別回報；GPU 寫入例外和讀回不一致也會顯示具體原因。
 - 寫入前檢查可讀取的 `max_freq` 和 `available_frequencies`，不對超過硬體上限或未列出的頻率步進提出請求。
 - 備份先在暫存檔完成同步與校驗，再改名成正式備份；還原前後均要求可讀取並驗證原始值。
