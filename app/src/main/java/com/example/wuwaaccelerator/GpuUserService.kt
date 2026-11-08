@@ -56,6 +56,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var exitSamples = 0
     private var thermalStatus: Int? = null
     private var lastThermalSampleAtMs = 0L
+    private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
     private data class BackupState(val fingerprint: String, val original: String)
@@ -91,6 +92,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         exitSamples = 0
         thermalStatus = null
         lastThermalSampleAtMs = 0L
+        adaptiveHysteresis.reset()
         scheduleLocked(0L)
         status = "監控啟動（Shizuku UID=$uid）；${gpuSummary()}；等待鳴潮"
         true
@@ -168,10 +170,14 @@ class GpuUserService : IAcceleratorService.Stub() {
 
             val gpuLoad = readGpuLoadPercent()
             val memoryPressure = readMemoryPressure()
-            val requestedTarget = GpuAdaptivePolicy.chooseTarget(
+            val proposedTarget = GpuAdaptivePolicy.chooseTarget(
                 thermalStatus,
                 gpuLoad,
                 memoryPressure
+            )
+            val requestedTarget = adaptiveHysteresis.update(
+                proposedTarget,
+                forceImmediate = thermalStatus == 1 || memoryPressure != MemoryPressure.NORMAL
             )
 
             if (requestedTarget == null) {
@@ -193,6 +199,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             exitSamples++
             if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
                 boostActive = false
+                adaptiveHysteresis.reset()
                 exitSamples = 0
                 status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
             }
