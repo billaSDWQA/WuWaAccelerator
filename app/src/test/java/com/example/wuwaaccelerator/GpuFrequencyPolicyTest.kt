@@ -11,7 +11,7 @@ class GpuFrequencyPolicyTest {
     @Test
     fun acceptsKnownFrequencyValues() {
         listOf(
-            "0", "544000", "648000", "750000", "864000",
+            "0", "450000", "544000", "648000", "750000", "864000",
             "960000", "1025000", "1152000", "1300000"
         ).forEach { assertTrue("Expected $it to be accepted", GpuFrequencyPolicy.isValid(it)) }
     }
@@ -36,5 +36,40 @@ class GpuFrequencyPolicyTest {
         assertNull(GpuFrequencyPolicy.shouldRaise(null))
         assertNull(GpuFrequencyPolicy.shouldRaise("999999"))
         assertNull(GpuFrequencyPolicy.shouldRaise("garbage"))
+    }
+
+    @Test
+    fun rejectsTargetAboveCurrentMaximum() {
+        assertFalse(
+            GpuFrequencyPolicy.isHardwareTargetSupported(
+                "750000", "648000", null
+            )
+        )
+    }
+
+    @Test
+    fun rejectsTargetNotAdvertisedByDriver() {
+        assertFalse(
+            GpuFrequencyPolicy.isHardwareTargetSupported(
+                "750000", "1300000",
+                setOf("450000", "648000", "864000")
+            )
+        )
+    }
+
+    @Test
+    fun acceptsTargetWithinHardwareLimits() {
+        assertTrue(
+            GpuFrequencyPolicy.isHardwareTargetSupported(
+                "750000", "1300000",
+                setOf("450000", "750000", "1300000")
+            )
+        )
+    }
+
+    @Test
+    fun permitsUnknownOptionalHardwareNodes() {
+        assertTrue(GpuFrequencyPolicy.isHardwareTargetSupported("750000", null, null))
+        assertFalse(GpuFrequencyPolicy.isHardwareTargetSupported("750001", null, null))
     }
 }
