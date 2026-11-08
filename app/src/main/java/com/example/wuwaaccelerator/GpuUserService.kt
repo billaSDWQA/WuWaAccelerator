@@ -24,8 +24,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         private const val CUR_NODE = "$NODE/cur_freq"
         private const val GOV_NODE = "$NODE/governor"
         private const val AVAILABLE_NODE = "$NODE/available_frequencies"
-        private const val TARGET = GpuFrequencyPolicy.BOOST_MIN_FREQ
-        private const val POLL_MS = 1500L
+        private const val POLL_MS = 2000L
+        private const val THERMAL_SAMPLE_INTERVAL_MS = 5000L
+        private const val THERMAL_TIMEOUT_MS = 2500L
         private const val DUMPSYS_TIMEOUT_MS = 3000L
         private const val SHELL_UID = 2000
         private const val ROOT_UID = 0
@@ -39,14 +40,22 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v1")
     private val foregroundDump = File(directory, "foreground.txt")
+    private val thermalDump = File(directory, "thermal.txt")
     private val minFile = File(MIN_NODE)
+    private val gpuLoadNodes = listOf(
+        "$NODE/load",
+        "$NODE/gpu_load",
+        "$NODE/gpu_busy_percent",
+        "/sys/class/drm/card0/device/gpu_busy_percent"
+    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
-    private var boostAttempted = false
     private var boostActive = false
     private var unknownSamples = 0
     private var exitSamples = 0
+    private var thermalStatus: Int? = null
+    private var lastThermalSampleAtMs = 0L
     private var future: ScheduledFuture<*>? = null
 
     private data class BackupState(val fingerprint: String, val original: String)
@@ -77,10 +86,11 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
-        boostAttempted = false
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
+        thermalStatus = null
+        lastThermalSampleAtMs = 0L
         scheduleLocked(0L)
         status = "監控啟動（Shizuku UID=$uid）；${gpuSummary()}；等待鳴潮"
         true
@@ -92,7 +102,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (restored) {
             future?.cancel(false)
             future = null
-            boostAttempted = false
             boostActive = false
             status = "已停止；GPU 原始值已確認還原。${gpuSummary()}"
         } else {
@@ -136,15 +145,14 @@ class GpuUserService : IAcceleratorService.Stub() {
             unknownSamples++
             if (backup.exists() && unknownSamples >= UNKNOWN_LIMIT) {
                 if (restoreLocked()) {
-                    boostAttempted = false
                     boostActive = false
                     exitSamples = 0
-                    status = "前景連續辨識失敗，已安全還原：${detection.error}"
+                    status = "前景連續辨識失敗，已安全還原：\${detection.error}"
                 } else {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
                 }
             } else {
-                status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：${detection.error}"
+                status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：\${detection.error}"
             }
             return
         }
@@ -152,58 +160,111 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         if (foreground == GAME) {
             exitSamples = 0
-            if (backup.exists()) {
-                if (boostActive) {
-                    status = "鳴潮前景；min_freq 已寫入並讀回驗證。${gpuSummary()}"
-                } else if (restoreLocked()) {
-                    boostAttempted = true
-                    status = "發現未完成的舊操作，已先還原；本次不重複套用"
-                }
-            } else if (!boostAttempted) {
-                applyBoostLocked()
+            val now = System.currentTimeMillis()
+            if (now - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS) {
+                thermalStatus = readThermalStatus()
+                lastThermalSampleAtMs = now
             }
+
+            val gpuLoad = readGpuLoadPercent()
+            val memoryPressure = readMemoryPressure()
+            val requestedTarget = GpuAdaptivePolicy.chooseTarget(
+                thermalStatus,
+                gpuLoad,
+                memoryPressure
+            )
+
+            if (requestedTarget == null) {
+                if (backup.exists() && !restoreLocked()) {
+                    status = "熱狀態／記憶體壓力要求停止加速，但還原失敗；備份保留：$status"
+                } else {
+                    boostActive = false
+                    status = "保護模式：thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}，" +
+                        "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；GPU 已回到原始設定"
+                }
+                return
+            }
+
+            applyTargetLocked(requestedTarget, gpuLoad, memoryPressure)
             return
         }
 
         if (backup.exists()) {
             exitSamples++
             if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
-                boostAttempted = false
                 boostActive = false
                 exitSamples = 0
-                status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
+                status = "鳴潮已離開前景；GPU 原始值已確認還原。\${gpuSummary()}"
             }
         } else {
             exitSamples = 0
-            boostAttempted = false
             status = "自動偵測中；目前前景：$foreground"
         }
     }
 
-    private fun applyBoostLocked() {
-        boostAttempted = true
+    private fun applyTargetLocked(
+        requestedTarget: String,
+        gpuLoad: Int?,
+        memoryPressure: MemoryPressure
+    ) {
+        val maximum = readNode(MAX_NODE)
+        val availableText = readNode(AVAILABLE_NODE)
+        val available = availableText?.split(Regex("\\\\s+"))?.filter { it.isNotBlank() }?.toSet()
+        val target = GpuAdaptivePolicy.supportedTarget(requestedTarget, maximum, available)
+        if (target == null) {
+            if (backup.exists()) restoreLocked()
+            status = "沒有可安全使用的 GPU 頻率步進；已停止加速。max_freq=$maximum"
+            return
+        }
+
+        if (backup.exists()) {
+            val state = readBackup()
+            if (state == null || state.fingerprint != Build.FINGERPRINT) {
+                status = "GPU 備份無效或韌體不符；拒絕覆寫，請先安全還原"
+                return
+            }
+            val originalValue = state.original.toLongOrNull()
+            val targetValue = target.toLongOrNull()
+            if (originalValue == null || targetValue == null) {
+                status = "GPU 備份或目標頻率格式錯誤；拒絕修改"
+                return
+            }
+            if (targetValue <= originalValue) {
+                if (restoreLocked()) {
+                    status = "原始 min_freq=\${state.original} 已不低於目標 $target；維持原始設定"
+                }
+                return
+            }
+            val current = readMin()
+            if (current == null) {
+                status = "無法讀取目前 min_freq；備份保留，不盲目寫入"
+                return
+            }
+            if (current != target) {
+                val error = writeAndVerify(target)
+                if (error != null) {
+                    status = "GPU 頻率調整至 $target 失敗：$error；正在還原"
+                    if (restoreLocked()) status = "調整失敗，原始值已確認還原"
+                    return
+                }
+            }
+            boostActive = true
+            status = "自適應 GPU 下限=\${target} kHz；GPU load=\${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+                "thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
+                "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；\${gpuSummary()}"
+            return
+        }
+
         val original = readMin()
         if (original == null || !GpuFrequencyPolicy.isValid(original)) {
             status = "無法安全讀取 SGPU min_freq；拒絕修改"
             return
         }
-        when (GpuFrequencyPolicy.shouldRaise(original)) {
-            null -> {
-                status = "原始 min_freq=$original 不在白名單；拒絕修改"
-                return
-            }
-            false -> {
-                status = "原始 min_freq=$original 已達或高於 750 MHz；保留原值"
-                return
-            }
-            true -> Unit
-        }
-
-        val maximum = readNode(MAX_NODE)
-        val availableText = readNode(AVAILABLE_NODE)
-        val available = availableText?.split(Regex("\\s+"))?.filter { it.isNotBlank() }?.toSet()
-        if (!GpuFrequencyPolicy.isHardwareTargetSupported(TARGET, maximum, available)) {
-            status = "拒絕套用 750 MHz：max_freq=$maximum；available_frequencies=$availableText"
+        val originalValue = original.toLongOrNull() ?: return
+        val targetValue = target.toLongOrNull() ?: return
+        if (originalValue >= targetValue) {
+            boostActive = false
+            status = "原始 min_freq=$original 已達或高於目標 $target；不覆寫原始設定"
             return
         }
         if (!writeBackup(original)) {
@@ -211,7 +272,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        val error = writeAndVerify(TARGET)
+        val error = writeAndVerify(target)
         if (error != null) {
             status = "min_freq 寫入／讀回失敗：$error；正在還原"
             if (restoreLocked()) status = "未套用加速：$error；原始值 $original 已確認還原"
@@ -220,7 +281,57 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         boostActive = true
-        status = "min_freq 下限 750000 已寫入且讀回一致；非固定 GPU 頻率或 FPS 保證。${gpuSummary()}"
+        status = "自適應 GPU 下限=\${target} kHz；GPU load=\${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+            "thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
+            "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；\${gpuSummary()}"
+    }
+
+    private fun readThermalStatus(): Int? {
+        return try {
+            if (!directory.exists() && !directory.mkdirs()) return null
+            Os.chmod(directory.absolutePath, 448)
+            val process = ProcessBuilder("/system/bin/dumpsys", "thermalservice")
+                .redirectErrorStream(true)
+                .redirectOutput(thermalDump)
+                .start()
+            if (!process.waitFor(THERMAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly()
+                runCatching { process.waitFor(250, TimeUnit.MILLISECONDS) }
+                return null
+            }
+            if (process.exitValue() != 0 || !thermalDump.isFile) return null
+            Os.chmod(thermalDump.absolutePath, 384)
+            GpuAdaptivePolicy.parseThermalStatus(
+                thermalDump.readText(StandardCharsets.UTF_8)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readGpuLoadPercent(): Int? {
+        for (path in gpuLoadNodes) {
+            val raw = readNode(path) ?: continue
+            val parsed = GpuAdaptivePolicy.parseGpuLoadPercent(raw)
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    private fun readMemoryPressure(): MemoryPressure {
+        return try {
+            val lines = File("/proc/meminfo").readLines(StandardCharsets.US_ASCII)
+            fun value(name: String): Long? {
+                val line = lines.firstOrNull { it.startsWith("$name:") } ?: return null
+                return Regex("\\\\d+").find(line)?.value?.toLongOrNull()
+            }
+            GpuAdaptivePolicy.classifyMemoryPressure(
+                value("MemTotal"),
+                value("MemAvailable")
+            )
+        } catch (_: Exception) {
+            MemoryPressure.UNKNOWN
+        }
     }
 
     // grep consumes the complete dumpsys stream; unlike the old awk command,
