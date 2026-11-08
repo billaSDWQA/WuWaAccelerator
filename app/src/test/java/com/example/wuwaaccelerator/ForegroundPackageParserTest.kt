@@ -7,16 +7,30 @@ import org.junit.Test
 class ForegroundPackageParserTest {
 
     @Test
-    fun prefersTopResumedActivityWhenBothFieldsExist() {
+    fun prefersTopResumedActivityWhenBothFieldsAreParseable() {
         val lines = listOf(
             "mResumedActivity: ActivityRecord{a1 u0 com.kurogame.wutheringwaves.global/.MainActivity t12}",
             "topResumedActivity=ActivityRecord{b2 u0 com.android.systemui/.RecentsActivity t13}"
         )
+        assertEquals("com.android.systemui", ForegroundPackageParser.parse(lines))
+    }
 
-        assertEquals(
-            "com.android.systemui",
-            ForegroundPackageParser.parse(lines)
+    @Test
+    fun fallsBackToLegacyWhenTopResumedIsNone() {
+        val lines = listOf(
+            "topResumedActivity=none",
+            "mResumedActivity: ActivityRecord{a1 u0 com.kurogame.wutheringwaves.global/.MainActivity t12}"
         )
+        assertEquals("com.kurogame.wutheringwaves.global", ForegroundPackageParser.parse(lines))
+    }
+
+    @Test
+    fun fallsBackToLegacyWhenTopResumedIsMalformed() {
+        val lines = listOf(
+            "topResumedActivity=ActivityRecord{a1 u0 <unknown> t12}",
+            "mResumedActivity: ActivityRecord{b2 u0 com.kurogame.wutheringwaves.global/.MainActivity t13}"
+        )
+        assertEquals("com.kurogame.wutheringwaves.global", ForegroundPackageParser.parse(lines))
     }
 
     @Test
@@ -24,11 +38,7 @@ class ForegroundPackageParserTest {
         val lines = listOf(
             "mResumedActivity: ActivityRecord{a1 u0 com.kurogame.wutheringwaves.global/.MainActivity t12}"
         )
-
-        assertEquals(
-            "com.kurogame.wutheringwaves.global",
-            ForegroundPackageParser.parse(lines)
-        )
+        assertEquals("com.kurogame.wutheringwaves.global", ForegroundPackageParser.parse(lines))
     }
 
     @Test
@@ -36,11 +46,7 @@ class ForegroundPackageParserTest {
         val lines = listOf(
             "topResumedActivity=ActivityRecord{a1 com.kurogame.wutheringwaves.global/.MainActivity t12}"
         )
-
-        assertEquals(
-            "com.kurogame.wutheringwaves.global",
-            ForegroundPackageParser.parse(lines)
-        )
+        assertEquals("com.kurogame.wutheringwaves.global", ForegroundPackageParser.parse(lines))
     }
 
     @Test
@@ -49,16 +55,15 @@ class ForegroundPackageParserTest {
             "ResumedActivity: ActivityRecord{a1 u0 com.kurogame.wutheringwaves.global/.MainActivity t12}",
             "topResumedActivity=none"
         )
-
         assertNull(ForegroundPackageParser.parse(lines))
     }
 
     @Test
-    fun returnsNullWhenActivityComponentCannotBeParsed() {
+    fun returnsNullWhenNoActivityComponentCanBeParsed() {
         val lines = listOf(
-            "topResumedActivity=ActivityRecord{a1 u0 <unknown> t12}"
+            "topResumedActivity=ActivityRecord{a1 u0 <unknown> t12}",
+            "mResumedActivity=none"
         )
-
         assertNull(ForegroundPackageParser.parse(lines))
     }
 }
