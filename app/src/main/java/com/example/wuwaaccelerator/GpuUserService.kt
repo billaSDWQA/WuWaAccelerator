@@ -62,6 +62,11 @@ class GpuUserService : IAcceleratorService.Stub() {
             return@synchronized false
         }
 
+        if (!SupportedDevicePolicy.isSupported(Build.MANUFACTURER, Build.MODEL)) {
+            status = "本版本只支援 Samsung SM-A5560；未修改任何 GPU 設定"
+            return@synchronized false
+        }
+
         monitoring = true
         boostAttempted = false
         boostActive = false
