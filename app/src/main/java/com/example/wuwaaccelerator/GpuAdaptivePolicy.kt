@@ -17,6 +17,7 @@ internal object GpuAdaptivePolicy {
     const val BASE_FLOOR = "750000"
     const val MID_FLOOR = "864000"
     const val HIGH_FLOOR = "960000"
+    const val ULTRA_FLOOR = "1025000"
 
     private val thermalStatusPattern =
         Regex("(?m)^\\s*Thermal Status:\\s*(\\d+)\\s*$")
@@ -80,6 +81,7 @@ internal object GpuAdaptivePolicy {
         }
 
         return when {
+            gpuLoadPercent != null && gpuLoadPercent >= 97 -> ULTRA_FLOOR
             gpuLoadPercent != null && gpuLoadPercent >= 90 -> HIGH_FLOOR
             gpuLoadPercent != null && gpuLoadPercent >= 70 -> MID_FLOOR
             else -> BASE_FLOOR
@@ -93,6 +95,7 @@ internal object GpuAdaptivePolicy {
         availableFrequencies: Set<String>?
     ): String? {
         val candidates = when (requested) {
+            ULTRA_FLOOR -> listOf(ULTRA_FLOOR, HIGH_FLOOR, MID_FLOOR, BASE_FLOOR)
             HIGH_FLOOR -> listOf(HIGH_FLOOR, MID_FLOOR, BASE_FLOOR)
             MID_FLOOR -> listOf(MID_FLOOR, BASE_FLOOR)
             BASE_FLOOR -> listOf(BASE_FLOOR)
