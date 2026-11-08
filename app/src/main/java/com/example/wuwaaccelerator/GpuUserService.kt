@@ -372,7 +372,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         boostActive = false
-        true
+        return true
     }
 
     private fun sha256(value: String): String {
