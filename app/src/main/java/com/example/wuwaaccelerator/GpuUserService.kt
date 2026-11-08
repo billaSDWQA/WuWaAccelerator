@@ -105,6 +105,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             future?.cancel(false)
             future = null
             boostActive = false
+            adaptiveHysteresis.reset()
             status = "已停止；GPU 原始值已確認還原。${gpuSummary()}"
         } else {
             status = "還原失敗，備份保留並持續重試：$status"
@@ -148,6 +149,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (backup.exists() && unknownSamples >= UNKNOWN_LIMIT) {
                 if (restoreLocked()) {
                     boostActive = false
+                    adaptiveHysteresis.reset()
                     exitSamples = 0
                     status = "前景連續辨識失敗，已安全還原：${detection.error}"
                 } else {
@@ -181,6 +183,10 @@ class GpuUserService : IAcceleratorService.Stub() {
             )
 
             if (requestedTarget == null) {
+                if (proposedTarget != null) {
+                    status = "正在確認 GPU 負載，暫不提高最低頻率；thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}"
+                    return
+                }
                 if (backup.exists() && !restoreLocked()) {
                     status = "熱狀態／記憶體壓力要求停止加速，但還原失敗；備份保留：$status"
                 } else {
@@ -205,6 +211,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             }
         } else {
             exitSamples = 0
+            adaptiveHysteresis.reset()
             status = "自動偵測中；目前前景：$foreground"
         }
     }
