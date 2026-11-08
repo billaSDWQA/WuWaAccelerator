@@ -23,6 +23,10 @@ class GpuUserService : IAcceleratorService.Stub() {
         // Initial test floor: one available step above 648 MHz on this device.
         // Thermal limits remain under kernel / vendor control.
         private const val BOOST_MIN_FREQ = "750000"
+        private val VALID_GPU_FREQUENCIES = setOf(
+            "450000", "544000", "648000", "750000", "864000",
+            "960000", "1025000", "1152000", "1300000"
+        )
 
         private const val POLL_INTERVAL_MS = 1500L
         private const val UNKNOWN_RESTORE_SAMPLES = 3
@@ -218,6 +222,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!backupDirectory.exists() && !backupDirectory.mkdirs()) {
                 return null
             }
+            Os.chmod(backupDirectory.absolutePath, 448) // 0700
 
             val command =
                 "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'"
@@ -275,7 +280,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun isValidFrequency(value: String): Boolean {
         val frequency = value.toLongOrNull() ?: return false
-        return frequency == 0L || frequency in 450000L..1300000L
+        return frequency == 0L || value in VALID_GPU_FREQUENCIES
     }
 
     private data class BackupState(
@@ -306,7 +311,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 return false
             }
             Os.chmod(backupFile.absolutePath, 384) // 0600
-            true
+            readBackup() != null
         } catch (_: Exception) {
             false
         }
