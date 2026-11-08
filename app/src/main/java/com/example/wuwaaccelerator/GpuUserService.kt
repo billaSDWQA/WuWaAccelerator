@@ -147,12 +147,12 @@ class GpuUserService : IAcceleratorService.Stub() {
                 if (restoreLocked()) {
                     boostActive = false
                     exitSamples = 0
-                    status = "前景連續辨識失敗，已安全還原：\${detection.error}"
+                    status = "前景連續辨識失敗，已安全還原：${detection.error}"
                 } else {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
                 }
             } else {
-                status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：\${detection.error}"
+                status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：${detection.error}"
             }
             return
         }
@@ -179,8 +179,8 @@ class GpuUserService : IAcceleratorService.Stub() {
                     status = "熱狀態／記憶體壓力要求停止加速，但還原失敗；備份保留：$status"
                 } else {
                     boostActive = false
-                    status = "保護模式：thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}，" +
-                        "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；GPU 已回到原始設定"
+                    status = "保護模式：thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}，" +
+                        "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；GPU 已回到原始設定"
                 }
                 return
             }
@@ -194,7 +194,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
                 boostActive = false
                 exitSamples = 0
-                status = "鳴潮已離開前景；GPU 原始值已確認還原。\${gpuSummary()}"
+                status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
             }
         } else {
             exitSamples = 0
@@ -209,7 +209,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     ) {
         val maximum = readNode(MAX_NODE)
         val availableText = readNode(AVAILABLE_NODE)
-        val available = availableText?.split(Regex("\\\\s+"))?.filter { it.isNotBlank() }?.toSet()
+        val available = availableText?.split(Regex("\\s+"))?.filter { it.isNotBlank() }?.toSet()
         val target = GpuAdaptivePolicy.supportedTarget(requestedTarget, maximum, available)
         if (target == null) {
             if (backup.exists()) restoreLocked()
@@ -231,7 +231,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             }
             if (targetValue <= originalValue) {
                 if (restoreLocked()) {
-                    status = "原始 min_freq=\${state.original} 已不低於目標 $target；維持原始設定"
+                    status = "原始 min_freq=${state.original} 已不低於目標 $target；維持原始設定"
                 }
                 return
             }
@@ -249,9 +249,9 @@ class GpuUserService : IAcceleratorService.Stub() {
                 }
             }
             boostActive = true
-            status = "自適應 GPU 下限=\${target} kHz；GPU load=\${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-                "thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-                "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；\${gpuSummary()}"
+            status = "自適應 GPU 下限=${target} kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+                "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
+                "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
             return
         }
 
@@ -281,9 +281,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         boostActive = true
-        status = "自適應 GPU 下限=\${target} kHz；GPU load=\${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-            "thermal=\${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-            "memory=\${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；\${gpuSummary()}"
+        status = "自適應 GPU 下限=${target} kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+            "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
+            "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
     }
 
     private fun readThermalStatus(): Int? {
@@ -323,7 +323,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             val lines = File("/proc/meminfo").readLines(StandardCharsets.US_ASCII)
             fun value(name: String): Long? {
                 val line = lines.firstOrNull { it.startsWith("$name:") } ?: return null
-                return Regex("\\\\d+").find(line)?.value?.toLongOrNull()
+                return Regex("\\d+").find(line)?.value?.toLongOrNull()
             }
             GpuAdaptivePolicy.classifyMemoryPressure(
                 value("MemTotal"),
