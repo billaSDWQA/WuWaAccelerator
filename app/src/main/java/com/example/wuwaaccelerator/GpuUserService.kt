@@ -296,20 +296,21 @@ class GpuUserService : IAcceleratorService.Stub() {
             Os.chmod(directory.absolutePath, 448)
             val payload = "1\n${Build.FINGERPRINT}\n$original\n"
             val complete = payload + sha256(payload) + "\n"
-            temp = File(directory, "gpu-state-v1.tmp")
-            if (temp.exists() && !temp.delete()) return false
-            FileOutputStream(temp).use {
+            val tempFile = File(directory, "gpu-state-v1.tmp")
+            temp = tempFile
+            if (tempFile.exists() && !tempFile.delete()) return false
+            FileOutputStream(tempFile).use {
                 it.write(complete.toByteArray(StandardCharsets.UTF_8))
                 it.flush()
                 it.fd.sync()
             }
-            Os.chmod(temp.absolutePath, 384)
-            if (readBackupFrom(temp) == null) {
-                temp.delete()
+            Os.chmod(tempFile.absolutePath, 384)
+            if (readBackupFrom(tempFile) == null) {
+                tempFile.delete()
                 return false
             }
-            if (!temp.renameTo(backup)) {
-                temp.delete()
+            if (!tempFile.renameTo(backup)) {
+                tempFile.delete()
                 return false
             }
             promoted = true
