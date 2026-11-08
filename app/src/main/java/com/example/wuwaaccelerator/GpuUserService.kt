@@ -222,14 +222,17 @@ class GpuUserService : IAcceleratorService.Stub() {
         status = "min_freq 下限 750000 已寫入且讀回一致；非固定 GPU 頻率或 FPS 保證。${gpuSummary()}"
     }
 
-    // Direct dumpsys invocation avoids shell-pipeline early-exit/fallback loss.
+    // grep consumes the complete dumpsys stream; unlike the old awk command,
+    // it does not exit after the first topResumedActivity record.
     private fun readForeground(): ForegroundResult {
         return try {
             if (!directory.exists() && !directory.mkdirs()) {
                 return ForegroundResult(null, "無法建立診斷目錄")
             }
             Os.chmod(directory.absolutePath, 448)
-            val process = ProcessBuilder("/system/bin/dumpsys", "activity", "activities")
+            val command = "/system/bin/dumpsys activity activities | " +
+                "/system/bin/grep -E 'topResumedActivity|mResumedActivity'"
+            val process = ProcessBuilder("/system/bin/sh", "-c", command)
                 .redirectErrorStream(true)
                 .redirectOutput(foregroundDump)
                 .start()
@@ -326,15 +329,17 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun readBackup(): BackupState? = readBackupFrom(backup)
 
-    private fun readBackupFrom(file: File): BackupState? = try {
-        if (!file.isFile) return null
-        val lines = file.readLines(StandardCharsets.UTF_8)
-        if (lines.size != 4 || lines[0] != "1") return null
-        val payload = "${lines[0]}\n${lines[1]}\n${lines[2]}\n"
-        if (sha256(payload) != lines[3] || !GpuFrequencyPolicy.isValid(lines[2])) null
-        else BackupState(lines[1], lines[2])
-    } catch (_: Exception) {
-        null
+    private fun readBackupFrom(file: File): BackupState? {
+        return try {
+            if (!file.isFile) return null
+            val lines = file.readLines(StandardCharsets.UTF_8)
+            if (lines.size != 4 || lines[0] != "1") return null
+            val payload = "${lines[0]}\n${lines[1]}\n${lines[2]}\n"
+            if (sha256(payload) != lines[3] || !GpuFrequencyPolicy.isValid(lines[2])) null
+            else BackupState(lines[1], lines[2])
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun restoreLocked(): Boolean {
