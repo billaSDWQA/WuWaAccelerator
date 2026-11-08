@@ -1,0 +1,40 @@
+package com.example.wuwaaccelerator
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GpuFrequencyPolicyTest {
+
+    @Test
+    fun acceptsKnownFrequencyValues() {
+        listOf(
+            "0", "544000", "648000", "750000", "864000",
+            "960000", "1025000", "1152000", "1300000"
+        ).forEach { assertTrue("Expected $it to be accepted", GpuFrequencyPolicy.isValid(it)) }
+    }
+
+    @Test
+    fun rejectsMalformedOrUnknownValues() {
+        listOf("", "-1", "750", "not-a-frequency", "999999").forEach {
+            assertFalse("Expected $it to be rejected", GpuFrequencyPolicy.isValid(it))
+        }
+    }
+
+    @Test
+    fun raisesOnlyWhenOriginalIsBelowTestFloor() {
+        assertEquals(true, GpuFrequencyPolicy.shouldRaise("544000"))
+        assertEquals(true, GpuFrequencyPolicy.shouldRaise("648000"))
+        assertEquals(false, GpuFrequencyPolicy.shouldRaise("750000"))
+        assertEquals(false, GpuFrequencyPolicy.shouldRaise("864000"))
+    }
+
+    @Test
+    fun refusesToChooseForUnknownOriginalValue() {
+        assertNull(GpuFrequencyPolicy.shouldRaise(null))
+        assertNull(GpuFrequencyPolicy.shouldRaise("999999"))
+        assertNull(GpuFrequencyPolicy.shouldRaise("garbage"))
+    }
+}

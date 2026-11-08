@@ -11,7 +11,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="24dp"
-        android:text="WuWa Accelerator"
+        android:text="鳴潮 GPU 自動加速器"
         android:textSize="24sp"
         android:textStyle="bold" />
 
@@ -30,14 +30,14 @@
         android:layout_width="match_parent"
         android:layout_height="60dp"
         android:layout_marginBottom="14dp"
-        android:text="啟動自動加速"
+        android:text="啟動自動偵測"
         android:textSize="17sp" />
 
     <Button
         android:id="@+id/btn_stop"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:text="停止並立即還原"
+        android:text="停止並還原 GPU 設定"
         android:textSize="17sp" />
 
 </LinearLayout>

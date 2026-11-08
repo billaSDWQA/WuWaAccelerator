@@ -23,10 +23,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         // Initial test floor: one available step above 648 MHz on this device.
         // Thermal limits remain under kernel / vendor control.
         private const val BOOST_MIN_FREQ = "750000"
-        private val VALID_GPU_FREQUENCIES = setOf(
-            "450000", "544000", "648000", "750000", "864000",
-            "960000", "1025000", "1152000", "1300000"
-        )
 
         private const val POLL_INTERVAL_MS = 1500L
         private const val UNKNOWN_RESTORE_SAMPLES = 3
@@ -190,13 +186,12 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        val originalFrequency = original.toLongOrNull()
-        val requestedFrequency = BOOST_MIN_FREQ.toLong()
-        if (originalFrequency == null) {
-            status = "GPU 原始最低頻率格式無效；未修改任何設定"
+        val shouldRaise = GpuFrequencyPolicy.shouldRaise(original)
+        if (shouldRaise == null) {
+            status = "GPU 原始最低頻率不在已確認的格式範圍；未修改任何設定"
             return
         }
-        if (originalFrequency >= requestedFrequency) {
+        if (!shouldRaise) {
             status = "GPU 原始最低頻率已達或高於 750 MHz；保留原設定，不降低 GPU 下限"
             return
         }
@@ -246,17 +241,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 return null
             }
 
-            val lines = foregroundOutput.readLines()
-                .sortedBy { if (it.contains("topResumedActivity")) 0 else 1 }
-
-            val packagePattern = Regex("""u\d+\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/""")
-            for (line in lines) {
-                val match = packagePattern.find(line)
-                if (match != null) {
-                    return match.groupValues[1]
-                }
-            }
-            null
+            ForegroundPackageParser.parse(foregroundOutput.readLines())
         } catch (_: Exception) {
             null
         }
@@ -285,8 +270,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     }
 
     private fun isValidFrequency(value: String): Boolean {
-        val frequency = value.toLongOrNull() ?: return false
-        return frequency == 0L || value in VALID_GPU_FREQUENCIES
+        return GpuFrequencyPolicy.isValid(value)
     }
 
     private data class BackupState(

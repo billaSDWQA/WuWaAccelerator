@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(1)
+            .version(2)
     }
 
     private val permissionResultListener =
@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("Shizuku 連線中斷；若先前有加速，備份仍保留在服務端")
+            showStatus("Shizuku 服務已中斷；若先前套用 GPU 設定，備份仍保留，重新啟動 Shizuku 後會先嘗試還原")
         }
     }
 
@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("GPU 控制服務已中斷；請確認 Shizuku 是否仍在執行")
+            showStatus("GPU 控制服務已中斷；若先前套用 GPU 設定，重新連線後會先嘗試還原")
         }
     }
 

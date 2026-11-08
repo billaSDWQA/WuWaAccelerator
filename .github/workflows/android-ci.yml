@@ -35,8 +35,14 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Build debug APK
-        run: bash ./gradlew --no-daemon :app:assembleDebug --stacktrace
+      - name: Run unit tests
+        run: bash ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Run Android lint
+        run: bash ./gradlew --no-daemon :app:lintDebug --stacktrace
+
+      - name: Build debug and release APKs
+        run: bash ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -44,4 +50,4 @@ jobs:
           name: WuWaAccelerator-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
