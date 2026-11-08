@@ -196,6 +196,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 status = "原始 min_freq=$original 已達或高於 750 MHz；保留原值"
                 return
             }
+            true -> Unit
         }
 
         val maximum = readNode(MAX_NODE)
