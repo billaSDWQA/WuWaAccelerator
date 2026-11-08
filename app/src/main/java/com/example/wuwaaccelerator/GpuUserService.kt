@@ -212,8 +212,11 @@ class GpuUserService : IAcceleratorService.Stub() {
         val available = availableText?.split(Regex("\\s+"))?.filter { it.isNotBlank() }?.toSet()
         val target = GpuAdaptivePolicy.supportedTarget(requestedTarget, maximum, available)
         if (target == null) {
-            if (backup.exists()) restoreLocked()
-            status = "沒有可安全使用的 GPU 頻率步進；已停止加速。max_freq=$maximum"
+            if (backup.exists() && !restoreLocked()) {
+                status = "沒有可安全使用的 GPU 頻率步進，且原始值還原失敗；備份保留：$status"
+            } else {
+                status = "沒有可安全使用的 GPU 頻率步進；已回到原始設定。max_freq=$maximum"
+            }
             return
         }
 
