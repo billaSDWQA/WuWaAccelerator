@@ -1,12 +1,8 @@
 package com.example.wuwaaccelerator
 
 /**
- * Extracts the package name from the ActivityManager lines printed by
- * `dumpsys activity activities`.
- *
- * Android releases differ in whether the line includes a user token (for
- * example, "u0 ") before the component. Accept both formats, but only inspect
- * the two known resumed-activity fields.
+ * Prefer topResumedActivity, but fall back to mResumedActivity when the
+ * preferred record is "none" or does not contain a parseable component.
  */
 internal object ForegroundPackageParser {
 
