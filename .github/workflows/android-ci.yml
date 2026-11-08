@@ -1,10 +1,10 @@
 name: Android CI
 
 on:
+  # Feature branches are built by pull_request to avoid duplicate push + PR runs.
   push:
     branches:
       - main
-      - chatgpt/initial-review
   pull_request:
     branches:
       - main
