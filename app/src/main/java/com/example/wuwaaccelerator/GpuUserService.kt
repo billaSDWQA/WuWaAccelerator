@@ -21,7 +21,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             "/sys/class/devfreq/10e00000.sgpu/interface/min_freq"
 
         // Initial test floor: one available step above 648 MHz on this device.
-        // Thermal limits remain under kernel / vendor control.
+        // Thermal interaction is device-dependent; this code does not write thermal nodes.
         private const val BOOST_MIN_FREQ = GpuFrequencyPolicy.BOOST_MIN_FREQ
 
         private const val POLL_INTERVAL_MS = 1500L
@@ -64,6 +64,12 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         if (!SupportedDevicePolicy.isSupported(Build.MANUFACTURER, Build.MODEL)) {
             status = "本版本只支援 Samsung SM-A5560；未修改任何 GPU 設定"
+            return@synchronized false
+        }
+
+        val currentMinimum = readGpuMinFreq()
+        if (currentMinimum == null || !isValidFrequency(currentMinimum)) {
+            status = "無法讀取或驗證 SGPU 最低頻率節點；未修改任何設定"
             return@synchronized false
         }
 
