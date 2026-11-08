@@ -351,18 +351,24 @@ class GpuUserService : IAcceleratorService.Stub() {
             return false
         }
 
-        if (!writeGpuMinFreq(backup.originalMinFreq)) {
-            status = "無法寫回 GPU 原始最低頻率"
-            return false
-        }
+        // A reboot or the vendor driver may already have restored this
+        // volatile sysfs value. Do not attempt a privileged write when the
+        // current value is already the exact value recorded in the backup.
+        val currentMinFreq = readGpuMinFreq()
+        if (currentMinFreq != backup.originalMinFreq) {
+            if (!writeGpuMinFreq(backup.originalMinFreq)) {
+                status = "無法寫回 GPU 原始最低頻率；備份保留"
+                return false
+            }
 
-        if (readGpuMinFreq() != backup.originalMinFreq) {
-            status = "GPU 原始頻率寫回後驗證失敗"
-            return false
+            if (readGpuMinFreq() != backup.originalMinFreq) {
+                status = "GPU 原始頻率寫回後驗證失敗；備份保留"
+                return false
+            }
         }
 
         if (!backupFile.delete()) {
-            status = "GPU 設定已寫回，但備份檔無法刪除；將再次驗證"
+            status = "GPU 原始值已確認，但備份檔無法刪除；將再次驗證"
             return false
         }
 
