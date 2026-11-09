@@ -160,6 +160,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private fun pollOnce() {
         val shouldMonitor = synchronized(lock) { monitoring }
         if (!shouldMonitor) {
+            framePresentationMonitor.stop()
             synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
