@@ -49,6 +49,31 @@ class GpuTelemetryParserTest {
     }
 
     @Test
+    fun disablesAdaptiveLoadWhenIndependentSourcesDisagree() {
+        val readings = GpuTelemetryParser.readLoadSources(listOf("sgpu/load", "drm/gpu_busy_percent")) {
+            when (it) {
+                "sgpu/load" -> "92"
+                "drm/gpu_busy_percent" -> "41%"
+                else -> null
+            }
+        }
+        val selected = GpuTelemetryParser.chooseLoad(readings)
+        assertEquals(TelemetryStatus.UNAVAILABLE, selected.status)
+        assertNull(selected.value)
+        assertTrue(selected.reason.orEmpty().contains("差異"))
+        assertEquals(2, readings.size)
+    }
+
+    @Test
+    fun acceptsAgreementBetweenMultipleExplicitPercentageSources() {
+        val readings = listOf(
+            GpuTelemetryParser.parseLoadPercent("sgpu/load", "79"),
+            GpuTelemetryParser.parseLoadPercent("drm/gpu_busy_percent", "83%")
+        )
+        assertEquals(79, GpuTelemetryParser.chooseLoad(readings).value)
+    }
+
+    @Test
     fun returnsMalformedInsteadOfInventingLoadWhenOnlyBadDataExists() {
         val reading = GpuTelemetryParser.firstReadableLoad(listOf("counter")) { "9000 10000" }
         assertEquals(TelemetryStatus.MALFORMED, reading.status)
