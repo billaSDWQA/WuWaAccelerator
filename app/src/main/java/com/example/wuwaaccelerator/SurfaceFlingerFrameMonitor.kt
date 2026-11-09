@@ -177,8 +177,8 @@ internal object SurfaceFlingerTimestatsParser {
         if (parsed.isEmpty()) {
             return FramePresentationSnapshot.unavailable("找到鳴潮 Layer，但統計格式無法解析", nowMs)
         }
-        val selected = parsed.maxByOrNull { it.first.second ?: 0L } ?: return
-            FramePresentationSnapshot.unavailable("沒有可用影格統計", nowMs)
+        val selected = parsed.maxByOrNull { it.first.second ?: 0L }
+            ?: return FramePresentationSnapshot.unavailable("沒有可用影格統計", nowMs)
         val bins = selected.second
         val p95 = percentileMs(bins, 0.95)
         val p99 = percentileMs(bins, 0.99)
