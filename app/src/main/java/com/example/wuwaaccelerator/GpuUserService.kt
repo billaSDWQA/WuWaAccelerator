@@ -8,6 +8,8 @@ import androidx.annotation.Keep
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -40,7 +42,8 @@ class GpuUserService : IAcceleratorService.Stub() {
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
-    private val backup = File(directory, "gpu-state-v1")
+    private val backup = File(directory, "gpu-state-v2")
+    private val legacyBackup = File(directory, "gpu-state-v1")
     private val foregroundDump = File(directory, "foreground.txt")
     private val thermalDump = File(directory, "thermal.txt")
     private val minFile = File(MIN_NODE)
@@ -55,7 +58,12 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
-    private data class BackupState(val fingerprint: String, val original: String)
+    private data class BackupState(
+        val fingerprint: String,
+        val original: String,
+        val lastApplied: String,
+        val previousApplied: String
+    )
     private data class ForegroundResult(val packageName: String?, val error: String? = null)
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
@@ -69,7 +77,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "UserService 執行身分錯誤：UID=$uid（預期 2000 或 0），拒絕寫入"
             return@synchronized false
         }
-        if (backup.exists() && !restoreLocked()) {
+        if (hasBackup() && !restoreLocked()) {
             status = "舊備份無法安全還原，拒絕開始：$status"
             return@synchronized false
         }
@@ -134,7 +142,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         future = scheduler.scheduleWithFixedDelay({
             synchronized(lock) {
                 if (monitoring) pollLocked()
-                else if (backup.exists() && restoreLocked()) {
+                else if (hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
@@ -149,7 +157,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         val foreground = detection.packageName
         if (foreground == null) {
             unknownSamples++
-            if (backup.exists() && unknownSamples >= UNKNOWN_LIMIT) {
+            if (hasBackup() && unknownSamples >= UNKNOWN_LIMIT) {
                 if (restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
@@ -190,7 +198,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                     status = "正在確認 GPU 負載，暫不提高最低頻率；thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}"
                     return
                 }
-                if (backup.exists() && !restoreLocked()) {
+                if (hasBackup() && !restoreLocked()) {
                     status = "熱狀態／記憶體壓力要求停止加速，但還原失敗；備份保留：$status"
                 } else {
                     boostActive = false
@@ -204,7 +212,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        if (backup.exists()) {
+        if (hasBackup()) {
             exitSamples++
             if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
                 boostActive = false
@@ -229,7 +237,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         val available = availableText?.split(Regex("\\s+"))?.filter { it.isNotBlank() }?.toSet()
         val target = GpuAdaptivePolicy.supportedTarget(requestedTarget, maximum, available)
         if (target == null) {
-            if (backup.exists() && !restoreLocked()) {
+            if (hasBackup() && !restoreLocked()) {
                 status = "沒有可安全使用的 GPU 頻率步進，且原始值還原失敗；備份保留：$status"
             } else {
                 status = "沒有可安全使用的 GPU 頻率步進；已回到原始設定。max_freq=$maximum"
@@ -237,10 +245,15 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
+        if (legacyBackup.exists() && !backup.exists()) {
+            status = "0.7.0 舊備份尚未安全處理；拒絕建立新的加速設定"
+            return
+        }
+
         if (backup.exists()) {
             val state = readBackup()
             if (state == null || state.fingerprint != Build.FINGERPRINT) {
-                status = "GPU 備份無效或韌體不符；拒絕覆寫，請先安全還原"
+                status = "GPU v2 備份無效或韌體不符；拒絕覆寫，請先安全處理備份"
                 return
             }
             val originalValue = state.original.toLongOrNull()
@@ -255,21 +268,40 @@ class GpuUserService : IAcceleratorService.Stub() {
                 }
                 return
             }
+
             val current = readMin()
             if (current == null) {
                 status = "無法讀取目前 min_freq；備份保留，不盲目寫入"
                 return
             }
+            val record = GpuRestoreRecord(
+                original = state.original,
+                lastApplied = state.lastApplied,
+                previousApplied = state.previousApplied
+            )
+            if (!GpuRestorePolicy.mayRestore(current, record)) {
+                status = "min_freq 已被外部修改（目前=$current）；拒絕覆寫，也不自動還原"
+                return
+            }
+
             if (current != target) {
+                // Persist the transition before writing. After a crash, restore can
+                // recognize either the previous value or the requested value.
+                val pending = state.copy(lastApplied = target, previousApplied = current)
+                if (!writeBackup(pending)) {
+                    status = "無法安全更新 GPU 還原紀錄；未寫入新頻率"
+                    return
+                }
                 val error = writeAndVerify(target)
                 if (error != null) {
-                    status = "GPU 頻率調整至 $target 失敗：$error；正在還原"
+                    status = "GPU 頻率調整至 $target 失敗：$error；嘗試安全還原"
                     if (restoreLocked()) status = "調整失敗，原始值已確認還原"
                     return
                 }
             }
+
             boostActive = true
-            status = "自適應 GPU 下限=${target} kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+            status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
                 "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
                 "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
             return
@@ -287,21 +319,28 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "原始 min_freq=$original 已達或高於目標 $target；不覆寫原始設定"
             return
         }
-        if (!writeBackup(original)) {
-            status = "GPU 原始值備份建立或校驗失敗；拒絕修改"
+
+        val initialState = BackupState(
+            fingerprint = Build.FINGERPRINT,
+            original = original,
+            lastApplied = target,
+            previousApplied = original
+        )
+        if (!writeBackup(initialState)) {
+            status = "GPU 原始值／最後套用值備份建立或校驗失敗；拒絕修改"
             return
         }
 
         val error = writeAndVerify(target)
         if (error != null) {
-            status = "min_freq 寫入／讀回失敗：$error；正在還原"
+            status = "min_freq 寫入／讀回失敗：$error；正在安全還原"
             if (restoreLocked()) status = "未套用加速：$error；原始值 $original 已確認還原"
             else status = "套用與還原都未完成：$error；備份保留。$status"
             return
         }
 
         boostActive = true
-        status = "自適應 GPU 下限=${target} kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
+        status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
             "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
             "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
     }
@@ -416,43 +455,50 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
     }
 
-    private fun writeBackup(original: String): Boolean {
-        var temp: File? = null
-        var promoted = false
+    private fun writeBackup(state: BackupState): Boolean {
+        var tempFile: File? = null
         return try {
-            if (backup.exists() || !GpuFrequencyPolicy.isValid(original)) return false
+            if (!GpuFrequencyPolicy.isValid(state.original) ||
+                !GpuFrequencyPolicy.isValid(state.lastApplied) ||
+                !GpuFrequencyPolicy.isValid(state.previousApplied) ||
+                legacyBackup.exists()
+            ) return false
+
             if (!directory.exists() && !directory.mkdirs()) return false
             Os.chmod(directory.absolutePath, 448)
-            val payload = "1\n${Build.FINGERPRINT}\n$original\n"
-            val complete = payload + sha256(payload) + "\n"
-            val tempFile = File(directory, "gpu-state-v1.tmp")
-            temp = tempFile
-            if (tempFile.exists() && !tempFile.delete()) return false
-            FileOutputStream(tempFile).use {
+            val payload = listOf(
+                "2",
+                state.fingerprint,
+                state.original,
+                state.lastApplied,
+                state.previousApplied
+            ).joinToString("\\n", postfix = "\\n")
+            val complete = payload + sha256(payload) + "\\n"
+            val temp = File(directory, "gpu-state-v2.tmp")
+            tempFile = temp
+            if (temp.exists() && !temp.delete()) return false
+
+            FileOutputStream(temp).use {
                 it.write(complete.toByteArray(StandardCharsets.UTF_8))
                 it.flush()
                 it.fd.sync()
             }
-            Os.chmod(tempFile.absolutePath, 384)
-            if (readBackupFrom(tempFile) == null) {
-                tempFile.delete()
+            Os.chmod(temp.absolutePath, 384)
+            if (readBackupFrom(temp) != state) {
+                temp.delete()
                 return false
             }
-            if (!tempFile.renameTo(backup)) {
-                tempFile.delete()
-                return false
-            }
-            promoted = true
+
+            Files.move(
+                temp.toPath(),
+                backup.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
             Os.chmod(backup.absolutePath, 384)
-            if (readBackup() != null) true
-            else {
-                backup.delete()
-                promoted = false
-                false
-            }
+            readBackup() == state
         } catch (_: Exception) {
-            temp?.delete()
-            if (promoted) backup.delete()
+            tempFile?.delete()
             false
         }
     }
@@ -463,20 +509,57 @@ class GpuUserService : IAcceleratorService.Stub() {
         return try {
             if (!file.isFile) return null
             val lines = file.readLines(StandardCharsets.UTF_8)
-            if (lines.size != 4 || lines[0] != "1") return null
-            val payload = "${lines[0]}\n${lines[1]}\n${lines[2]}\n"
-            if (sha256(payload) != lines[3] || !GpuFrequencyPolicy.isValid(lines[2])) null
-            else BackupState(lines[1], lines[2])
+            if (lines.size != 6 || lines[0] != "2") return null
+            val payload = lines.take(5).joinToString("\\n", postfix = "\\n")
+            if (sha256(payload) != lines[5] ||
+                !GpuFrequencyPolicy.isValid(lines[2]) ||
+                !GpuFrequencyPolicy.isValid(lines[3]) ||
+                !GpuFrequencyPolicy.isValid(lines[4])
+            ) {
+                null
+            } else {
+                BackupState(lines[1], lines[2], lines[3], lines[4])
+            }
         } catch (_: Exception) {
             null
         }
     }
 
     private fun restoreLocked(): Boolean {
-        if (!backup.exists()) {
+        if (!hasBackup()) {
             boostActive = false
             return true
         }
+
+        // v1 has no last-applied value, so the app cannot prove that a changed
+        // value is still its own. Clear only when it already equals the original.
+        if (legacyBackup.exists() && !backup.exists()) {
+            val legacy = readLegacyBackup()
+            if (legacy == null) {
+                status = "0.7.0 舊備份格式或 SHA-256 校驗失敗；拒絕猜測還原值"
+                return false
+            }
+            if (legacy.first != Build.FINGERPRINT) {
+                status = "0.7.0 舊備份韌體指紋不符；拒絕寫入舊設定"
+                return false
+            }
+            val current = readMin()
+            if (current == null) {
+                status = "無法讀取目前 min_freq；舊備份保留，不盲目寫入"
+                return false
+            }
+            if (current != legacy.second) {
+                status = "0.7.0 舊備份沒有最後套用值；目前 min_freq=$current，無法證明仍由本程式控制，拒絕覆寫並保留備份"
+                return false
+            }
+            if (!legacyBackup.delete()) {
+                status = "目前值已等於 0.7.0 原始值，但舊備份無法刪除；保留備份"
+                return false
+            }
+            boostActive = false
+            return true
+        }
+
         val state = readBackup()
         if (state == null) {
             status = "備份格式或 SHA-256 校驗失敗；拒絕猜測還原值"
@@ -486,12 +569,23 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "韌體指紋與備份不符；拒絕寫入舊設定"
             return false
         }
+
         val current = readMin()
         if (current == null) {
             status = "無法讀取目前 min_freq；備份保留，不盲目寫入"
             return false
         }
-        if (current != state.original) {
+        val record = GpuRestoreRecord(
+            original = state.original,
+            lastApplied = state.lastApplied,
+            previousApplied = state.previousApplied
+        )
+        if (!GpuRestorePolicy.mayRestore(current, record)) {
+            status = "min_freq 已被外部修改（目前=$current）；拒絕覆寫，還原備份保留"
+            return false
+        }
+
+        if (GpuRestorePolicy.needsWrite(current, record)) {
             val error = writeAndVerify(state.original)
             if (error != null) {
                 status = "還原 min_freq=${state.original} 失敗：$error；備份保留"
@@ -505,6 +599,24 @@ class GpuUserService : IAcceleratorService.Stub() {
         boostActive = false
         return true
     }
+
+    private fun readLegacyBackup(): Pair<String, String>? {
+        return try {
+            if (!legacyBackup.isFile) return null
+            val lines = legacyBackup.readLines(StandardCharsets.UTF_8)
+            if (lines.size != 4 || lines[0] != "1") return null
+            val payload = "1\\n${lines[1]}\\n${lines[2]}\\n"
+            if (sha256(payload) != lines[3] || !GpuFrequencyPolicy.isValid(lines[2])) {
+                null
+            } else {
+                lines[1] to lines[2]
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
 
     private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
 
