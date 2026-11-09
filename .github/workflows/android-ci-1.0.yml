@@ -9,6 +9,10 @@ on:
       - feature/1.0.0-full-accelerator
   workflow_dispatch:
 
+concurrency:
+  group: wuwa-accelerator-1.0-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
