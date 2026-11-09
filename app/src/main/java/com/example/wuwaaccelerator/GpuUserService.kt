@@ -70,6 +70,8 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var foregroundCheckInFlight = false
     private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
     private var thermalCheckInFlight = false
+    private var hudActive = false
+    private var gameForeground = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
@@ -106,6 +108,8 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
+        hudActive = false
+        gameForeground = false
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -126,6 +130,8 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
+        hudActive = false
+        gameForeground = false
         stopGameTelemetry()
         val restored = restoreLocked()
         if (restored) {
@@ -143,6 +149,12 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
+    override fun setHudActive(active: Boolean) = synchronized(lock) {
+        hudActive = active
+        if (active && monitoring && gameForeground) startHudTelemetry()
+        else stopHudTelemetry()
+    }
+
     override fun getTelemetrySnapshot(): String = listOf(
         telemetryMonitor.displayText(),
         cpuTelemetryMonitor.displayText(),
@@ -153,6 +165,8 @@ class GpuUserService : IAcceleratorService.Stub() {
     override fun destroy() {
         synchronized(lock) {
             monitoring = false
+            hudActive = false
+            gameForeground = false
             future?.cancel(false)
             future = null
             restoreLocked()
@@ -227,10 +241,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         val foregroundSampled = detectionState.second
         if (detection.packageName == GAME) synchronized(lock) {
             if (monitoring) {
+                gameForeground = true
                 telemetryMonitor.start()
-                cpuTelemetryMonitor.start()
-                gpuTemperatureMonitor.start()
-                frameMonitor.start()
+                if (hudActive) startHudTelemetry()
             }
         }
 
@@ -281,6 +294,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
+                gameForeground = false
                 stopGameTelemetry()
                         if (hasBackup() && restoreLocked()) {
                     boostActive = false
@@ -336,6 +350,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
+            gameForeground = false
             stopGameTelemetry()
                 if (hasBackup()) {
                 if (restoreLocked()) {
@@ -744,11 +759,21 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
 
-    private fun stopGameTelemetry() {
-        telemetryMonitor.stop()
+    private fun startHudTelemetry() {
+        cpuTelemetryMonitor.start()
+        gpuTemperatureMonitor.start()
+        frameMonitor.start()
+    }
+
+    private fun stopHudTelemetry() {
         cpuTelemetryMonitor.stop()
         gpuTemperatureMonitor.stop()
         frameMonitor.stop()
+    }
+
+    private fun stopGameTelemetry() {
+        telemetryMonitor.stop()
+        stopHudTelemetry()
     }
 
     private fun shutdownGameTelemetry() {

@@ -79,6 +79,11 @@ internal class CpuTelemetryCollector(
     private var previousCounters: Map<Int, CpuStatCounters> = emptyMap()
 
     @Synchronized
+    fun reset() {
+        previousCounters = emptyMap()
+    }
+
+    @Synchronized
     fun sample(): CpuTelemetrySnapshot {
         val now = clockMs()
         val statText = readText("/proc/stat")
@@ -151,6 +156,8 @@ internal class CpuTelemetryMonitor(
     @Synchronized
     fun start() {
         if (future?.isDone == false && future?.isCancelled == false) return
+        collector.reset()
+        latest.set(CpuTelemetrySnapshot(0L, null, emptyList(), emptyList(), null, "尚未取樣"))
         running = true
         future = executor.scheduleWithFixedDelay(
             {
@@ -177,7 +184,10 @@ internal class CpuTelemetryMonitor(
 
     fun displayText(): String {
         val snapshot = latest.get()
-        return if (running && snapshot.sampledAtMs > 0L &&
+        if (!running) {
+            return if (snapshot.sampledAtMs > 0L) "CPU 監測：資料已過期" else "CPU 監測：尚未啟動"
+        }
+        return if (snapshot.sampledAtMs > 0L &&
             System.nanoTime() / 1_000_000L - snapshot.sampledAtMs > intervalMs * 3
         ) {
             "CPU 監測：資料已過期"

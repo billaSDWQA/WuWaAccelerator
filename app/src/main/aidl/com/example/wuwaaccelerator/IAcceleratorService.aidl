@@ -5,6 +5,7 @@ interface IAcceleratorService {
     boolean stopAndRestore() = 2;
     String getStatus() = 3;
     String getTelemetrySnapshot() = 4;
+    void setHudActive(boolean active) = 5;
 
     // Shizuku UserService destroy transaction (AIDL-side code).
     void destroy() = 16777114;

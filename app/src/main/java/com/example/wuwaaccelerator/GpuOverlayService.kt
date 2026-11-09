@@ -118,6 +118,7 @@ class GpuOverlayService : Service() {
             return START_NOT_STICKY
         }
 
+        runCatching { remote?.setHudActive(true) }
         showOverlay()
         startPolling()
         return START_NOT_STICKY
@@ -129,6 +130,7 @@ class GpuOverlayService : Service() {
         pollFuture?.cancel(false)
         pollFuture = null
         poller.shutdownNow()
+        runCatching { remote?.setHudActive(false) }
         overlayRoot?.let { view ->
             runCatching { windowManager.removeView(view) }
         }

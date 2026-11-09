@@ -51,6 +51,8 @@ internal class GpuTemperatureMonitor(
     @Synchronized
     fun start() {
         if (future?.isDone == false && future?.isCancelled == false) return
+        latest.set(null)
+        sampled = false
         running = true
         future = executor.scheduleWithFixedDelay(
             { runCatching { sample() } }, 0L, intervalMs, TimeUnit.MILLISECONDS
@@ -68,7 +70,7 @@ internal class GpuTemperatureMonitor(
     }
 
     fun displayText(): String {
-        if (!running && !sampled) return "GPU 溫度：N/A（監測尚未啟動）"
+        if (!running) return "GPU 溫度：N/A（監測已停止或尚未啟動）"
         val reading = latest.get() ?: return "GPU 溫度：N/A（韌體未公開 GPU 感測器或 Shizuku 無讀取權限）"
         return "GPU 溫度：" + String.format(Locale.US, "%.1f°C（%s）", reading.celsius, reading.sensorType)
     }

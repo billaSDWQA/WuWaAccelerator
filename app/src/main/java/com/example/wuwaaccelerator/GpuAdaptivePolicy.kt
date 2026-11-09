@@ -75,6 +75,8 @@ internal object GpuAdaptivePolicy {
     ): String? {
         if (thermalStatus == null || thermalStatus !in 0..1) return null
         if (memoryPressure == MemoryPressure.CRITICAL) return null
+        // Missing or stale GPU load is not evidence that a frequency floor is needed.
+        if (gpuLoadPercent == null || gpuLoadPercent !in 0..100) return null
 
         if (thermalStatus == 1 || memoryPressure != MemoryPressure.NORMAL) {
             return BASE_FLOOR

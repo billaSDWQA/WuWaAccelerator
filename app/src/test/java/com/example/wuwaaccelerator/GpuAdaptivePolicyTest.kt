@@ -62,6 +62,8 @@ class GpuAdaptivePolicyTest {
             GpuAdaptivePolicy.BASE_FLOOR,
             GpuAdaptivePolicy.chooseTarget(0, 30, MemoryPressure.NORMAL)
         )
+        assertNull(GpuAdaptivePolicy.chooseTarget(0, null, MemoryPressure.NORMAL))
+        assertNull(GpuAdaptivePolicy.chooseTarget(1, null, MemoryPressure.NORMAL))
         assertEquals(
             GpuAdaptivePolicy.BASE_FLOOR,
             GpuAdaptivePolicy.chooseTarget(1, 99, MemoryPressure.NORMAL)
