@@ -74,7 +74,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (monitoring) {
             telemetryMonitor.start()
             cpuTelemetryMonitor.start()
-        gpuTemperatureMonitor.start()
             gpuTemperatureMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
