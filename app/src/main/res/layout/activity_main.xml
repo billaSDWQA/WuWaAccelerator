@@ -2,42 +2,67 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
     android:orientation="vertical"
-    android:padding="28dp">
+    android:padding="20dp">
 
     <TextView
         android:id="@+id/tv_title"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="8dp"
+        android:gravity="center"
         android:text="鳴潮 GPU 自動加速器"
-        android:textSize="24sp"
+        android:textSize="22sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/tv_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="28dp"
+        android:layout_marginBottom="8dp"
         android:gravity="center"
-        android:minHeight="64dp"
+        android:minHeight="42dp"
         android:text="等待 Shizuku 連線"
-        android:textSize="15sp" />
+        android:textSize="14sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="GPU 即時遙測（唯讀）"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="10dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/tv_telemetry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:padding="8dp"
+            android:text="等待 GPU 遙測資料"
+            android:textSize="12sp" />
+    </ScrollView>
 
     <Button
         android:id="@+id/btn_start"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:layout_marginBottom="14dp"
+        android:layout_height="52dp"
+        android:layout_marginBottom="8dp"
         android:text="啟動自動偵測"
-        android:textSize="17sp" />
+        android:textSize="16sp" />
 
     <Button
         android:id="@+id/btn_stop"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
+        android:layout_height="52dp"
         android:text="停止並還原 GPU 設定"
-        android:textSize="17sp" />
+        android:textSize="16sp" />
 
 </LinearLayout>
