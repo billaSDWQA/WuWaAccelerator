@@ -2,7 +2,7 @@
 
 這是一個針對 **Samsung Galaxy A55 5G（SM-A5560／Exynos 1480／Xclipse 530）** 的 Shizuku 工具。它只嘗試調整一個 GPU devfreq 節點，不修改 CPU、記憶體、網路、螢幕刷新率或遊戲檔案。
 
-> **目前版本：0.9.0 測試版。** 本版將 Galaxy A55 已實測的 SGPU `current_utilization` 讀值接入共用 GPU 遙測快照，並以 `utilization_source=jiffies` 作為自動調頻的必要條件。CI 通過只代表程式可編譯與單元測試通過；Shizuku 實機讀取、懸浮 HUD、頻率控制效果與遊戲幀率仍須另外驗證。
+> **目前版本：0.9.0 測試版。** 本版接入 A55 SGPU `current_utilization`，並新增使用者主動啟動的唯讀遊戲懸浮 HUD。CI 通過只代表程式可編譯與單元測試通過；Shizuku 實機讀取、HUD 長時間運作、頻率控制效果與遊戲幀率仍須另外驗證。
 
 ## 功能範圍
 
@@ -48,12 +48,13 @@ Shizuku 安裝與啟動方式請看官方指南：https://shizuku.rikka.app/guid
 
 ### 安裝 Debug APK
 
-1. 開啟本專案 GitHub 的 **Actions → Android CI**。
-2. 進入成功的執行紀錄，在 Artifacts 下載 `WuWaAccelerator-debug`。
+1. 開啟本專案 GitHub 的 **Actions → Android CI 0.9.0**。
+2. 進入最新且成功的執行紀錄，在 Artifacts 下載 `WuWaAccelerator-0.9.0-debug`。
 3. 解壓縮 ZIP，安裝其中的 APK。
 4. 啟動 Shizuku，再開啟本程式並授權。
-5. 程式連上 Shizuku 後會自動開始監控；再開啟鳴潮。
-6. 要停止時，按 **「停止並還原 GPU 設定」**，並確認狀態顯示已還原。
+5. 程式連上 Shizuku 後會自動開始監控。第一次使用 HUD 時，按 **「啟動遊戲內 GPU HUD」**，依系統畫面授予「顯示在其他應用程式上層」權限，回到加速器後再按一次。
+6. 開啟鳴潮。懸浮窗可拖曳；點擊標題展開詳細遙測，點擊「×」或通知中的「停止 HUD」可關閉。
+7. 要停止 GPU 自動調頻時，回到加速器按 **「停止並還原 GPU 設定」**；成功還原時也會關閉 HUD。
 
 > GitHub Hosted Runner 每次建立的 Debug 簽章可能不同。若新版 APK 無法直接覆蓋舊版，需先解除安裝舊版再安裝新版。解除安裝前，應先在程式內按停止並確認 GPU 已還原。
 
@@ -148,10 +149,19 @@ FPS 尚未接入。未確認鳴潮正確 layer 之前，不以螢幕刷新率、
 - 推送至 `feature/0.9.0-sgpu-utilization` 時執行單元測試、Android Lint、Debug/Release APK 建置，並上傳 Debug APK artifact。
 - CI 綠燈僅代表這些自動化檢查通過；不代表已在 Galaxy A55 上完成 Shizuku 讀取驗證或遊戲效能驗收。
 
+### 0.9.0 遊戲懸浮 HUD
+
+- HUD 由加速器主畫面的「啟動遊戲內 GPU HUD」按鈕明確啟動；若尚未授予權限，會開啟 Android「顯示在其他應用程式上層」設定頁。
+- HUD 透過 Intent 傳入目前 Shizuku UserService 的 Binder，只讀取既有遙測快照；沒有建立第二個 sysfs collector，也沒有任何 GPU 寫入功能。
+- 懸浮窗可拖曳；點擊標題可在簡潔模式與詳細遙測間切換；可使用「×」或前景通知的「停止 HUD」動作關閉。
+- HUD 使用 `specialUse` 前景服務類型及持續通知。它只在使用者從可見 Activity 點擊啟動，不會嘗試在背景自行啟動。
+- HUD 顯示驅動回報的 SGPU 利用率、實際時脈與遙測來源；目前尚未包含遊戲 layer FPS，也不代表遊戲內部 GPU 計時器。
+- Android 官方要求 overlay 權限由使用者明確授予；Android 14+ 的 `specialUse` 需要宣告用途，且應用商店發佈可能需要額外政策審查。請勿移除通知或偷偷常駐。
+
 ### 0.9.0 尚未完成的項目
 
 - Shizuku UserService 在 SM-A5560 上讀取新節點，並與 ADB 同時讀值比對。
-- 遊戲內懸浮 HUD（需另行加入 overlay 權限、前景服務及生命週期管理；本次核心遙測提交不會假裝已完成）。
+- HUD 的 SM-A5560 實機視覺、拖曳手感、遊戲切前景後持續更新與長時間穩定性驗證。
 - 較短取樣週期與短暫掉幀尖峰的關聯測試。
 - 實際 FPS、長時間溫度、穩定性和 60 FPS 驗證。
 
