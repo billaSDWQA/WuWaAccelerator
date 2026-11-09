@@ -71,7 +71,8 @@ class GpuTelemetryTest {
         val values = mapOf(
             GpuSysfsPaths.LOAD_CANDIDATES[0] to "92",
             GpuSysfsPaths.LOAD_CANDIDATES[1] to "41%",
-            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies"
+            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "jiffies hw_counter"
         )
         val snapshot = GpuTelemetryCollector(
             readText = { values[it] },
@@ -88,7 +89,8 @@ class GpuTelemetryTest {
         val values = mapOf(
             GpuSysfsPaths.LOAD_CANDIDATES[0] to "78",
             GpuSysfsPaths.LOAD_CANDIDATES[1] to "84%",
-            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies"
+            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "jiffies hw_counter"
         )
         val snapshot = GpuTelemetryCollector(
             readText = { values[it] },
@@ -119,7 +121,8 @@ class GpuTelemetryTest {
             GpuSysfsPaths.GOVERNOR to "sgpu_governor",
             GpuSysfsPaths.AVAILABLE_FREQUENCIES to "450000 648000 750000 1300000",
             GpuSysfsPaths.LOAD_CANDIDATES[0] to "80",
-            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies"
+            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "jiffies hw_counter"
         )
         val snapshot = GpuTelemetryCollector(
             readText = { values[it] },
@@ -156,6 +159,7 @@ class GpuTelemetryTest {
             snapshot.gpuLoad?.sourcePath
         )
         assertTrue(snapshot.toDisplayText(4500L, true).contains("utilization_source：jiffies"))
+        assertTrue(snapshot.toDisplayText(4500L, true).contains("驅動支援的負載來源：jiffies hw_counter random swing fake_hw_counter"))
 
         val unverified = GpuTelemetryCollector(
             readText = { path ->
@@ -169,6 +173,37 @@ class GpuTelemetryTest {
         ).sample()
         assertNull(unverified.gpuLoadPercent(4500L, 3000L))
         assertTrue(unverified.toDisplayText(4500L, true).contains("不交給自動調頻"))
+
+        val notAdvertised = GpuTelemetryCollector(
+            readText = { path ->
+                when (path) {
+                    GpuSysfsPaths.CURRENT_UTILIZATION -> "86"
+                    GpuSysfsPaths.UTILIZATION_SOURCE -> "jiffies"
+                    GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES -> "hw_counter random"
+                    else -> null
+                }
+            },
+            clockMs = { 4500L }
+        ).sample()
+        assertNull(notAdvertised.gpuLoadPercent(4500L, 3000L))
+    }
+
+    @Test
+    fun rejectsNonIntegerAndOutOfRangeSgpuUtilizationValues() {
+        listOf("86%", "86 100", "101", "-1", "86.5").forEach { raw ->
+            val snapshot = GpuTelemetryCollector(
+                readText = { path ->
+                    when (path) {
+                        GpuSysfsPaths.CURRENT_UTILIZATION -> raw
+                        GpuSysfsPaths.UTILIZATION_SOURCE -> "jiffies"
+                        GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES -> "jiffies hw_counter"
+                        else -> null
+                    }
+                },
+                clockMs = { 4550L }
+            ).sample()
+            assertNull("raw=$raw", snapshot.gpuLoadPercent(4550L, 3000L))
+        }
     }
 
     @Test
@@ -179,6 +214,8 @@ class GpuTelemetryTest {
                     GpuSysfsPaths.CURRENT_UTILIZATION -> "0"
                     GpuSysfsPaths.UTILIZATION_SOURCE -> "jiffies"
                     GpuSysfsPaths.CURRENT_FREQ -> "0"
+                    GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES -> "jiffies hw_counter"
+                    GpuSysfsPaths.CURRENT_CU_UTILIZATION -> "0"
                     else -> null
                 }
             },
@@ -186,6 +223,8 @@ class GpuTelemetryTest {
         ).sample()
 
         assertEquals(0, snapshot.gpuLoadPercent(4600L, 3000L))
+        assertTrue(snapshot.toDisplayText(4600L, true).contains("GPU 驅動利用率（SGPU）：0%"))
+        assertTrue(snapshot.toDisplayText(4600L, true).contains("GPU CU 利用率（輔助指標，非整體 GPU 使用率）：0%"))
         assertTrue(snapshot.toDisplayText(4600L, true).contains("0 kHz（閒置或驅動未回報）"))
     }
 
@@ -193,7 +232,8 @@ class GpuTelemetryTest {
     fun controllerReceivesOnlyFreshParsedLoadSamples() {
         val values = mapOf(
             GpuSysfsPaths.LOAD_CANDIDATES[0] to "75",
-            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies"
+            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "jiffies hw_counter"
         )
         val snapshot = GpuTelemetryCollector(
             readText = { values[it] },
@@ -201,6 +241,8 @@ class GpuTelemetryTest {
         ).sample()
 
         assertEquals(75, snapshot.gpuLoadPercent(2000L, 2000L))
+        assertNull(snapshot.gpuLoadPercent(500L, 2000L))
         assertNull(snapshot.gpuLoadPercent(5000L, 2000L))
+        assertNull(snapshot.gpuLoadPercent(2000L, -1L))
     }
 }
