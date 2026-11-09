@@ -206,15 +206,17 @@ class GpuUserService : IAcceleratorService.Stub() {
         val foreground = detection.packageName
         if (foreground == null) {
             unknownSamples++
-            if (hasBackup() && unknownSamples >= UNKNOWN_LIMIT) {
-                if (restoreLocked()) {
+            if (unknownSamples >= UNKNOWN_LIMIT) {
+                framePresentationMonitor.stop()
+                if (hasBackup() && restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
                     exitSamples = 0
-                    framePresentationMonitor.stop()
                     status = "前景連續辨識失敗，已安全還原：${detection.error}"
-                } else {
+                } else if (hasBackup()) {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
+                } else {
+                    status = "前景連續辨識失敗；未套用 GPU 設定，已停止遊戲呈現統計"
                 }
             } else {
                 status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：${detection.error}"
