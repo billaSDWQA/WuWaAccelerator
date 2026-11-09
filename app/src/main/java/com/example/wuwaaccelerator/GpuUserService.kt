@@ -41,6 +41,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val scheduler: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
+    private val cpuTelemetryMonitor = CpuTelemetryMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -69,6 +70,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
             telemetryMonitor.start()
+            cpuTelemetryMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
         }
@@ -93,6 +95,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         monitoring = true
         telemetryMonitor.start()
+        cpuTelemetryMonitor.start()
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -109,6 +112,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         val restored = restoreLocked()
         if (restored) {
             telemetryMonitor.stop()
+            cpuTelemetryMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
@@ -123,7 +127,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText()
+    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\\n\\n" + cpuTelemetryMonitor.displayText()
 
     override fun destroy() {
         synchronized(lock) {
@@ -132,6 +136,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             future = null
             restoreLocked()
             telemetryMonitor.shutdown()
+            cpuTelemetryMonitor.shutdown()
             scheduler.shutdownNow()
         }
         System.exit(0)
@@ -155,6 +160,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
+                    cpuTelemetryMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
