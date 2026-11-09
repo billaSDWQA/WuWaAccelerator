@@ -1,8 +1,8 @@
-# WuWaAccelerator 1.0.0
+# WuWaAccelerator 1.0.1
 
 **鳴潮專屬加速器｜Samsung Galaxy A55 5G（SM-A5560 / Exynos 1480 / Xclipse 530）**
 
-本分支以 1.0.0 為完整整合版本，保留 0.9.0 的 SGPU 自適應最低頻率控制，加入 CPU 唯讀監測、SurfaceFlinger 呈現統計診斷，以及完整的前景生命週期清理。
+本分支為 1.0.x 完整整合線，保留 0.9.0 的 SGPU 自適應最低頻率控制，並整合 CPU/GPU 即時監測、GPU 專用溫度感測、平均 FPS 與 1% Low 簡化統計，以及 HUD 前景生命週期清理。
 
 > **驗收原則：CI 通過不等於 A55 實機驗收通過。** 本分支仍須在 SM-A5560、Android 17 / One UI 9、Shizuku shell UID 2000 環境實測；尤其要確認 SurfaceFlinger 是否公開鳴潮 layer、SGPU 寫入權限、HUD 長時間運作與遊戲 15–30 分鐘以上的溫度／幀時間表現。
 
@@ -24,10 +24,14 @@
 
 ### 遊戲呈現統計診斷
 - 偵測鳴潮在前景時，嘗試啟用 `dumpsys SurfaceFlinger --timestats`，約每 10 秒讀取一次統計。
-- 若系統公開鳴潮 layer，顯示 layer 名稱、統計影格數、SurfaceFlinger droppedFrames、呈現間隔 P95/P99，以及呈現間隔超過 16.7 ms 的比例。
+- 若系統公開鳴潮 layer，從 `present2present` 直方圖估算平均 FPS 與 1% Low FPS，並顯示 SurfaceFlinger droppedFrames。1% Low 只在至少 100 個呈現間隔樣本後顯示。
 - 鳴潮離開前景、使用者停止加速或服務正常銷毀時，會嘗試關閉 timestats。
 - 若 One UI／SurfaceFlinger 不支援或不公開鳴潮 layer，會明確顯示不可用，不猜測其他 layer 是遊戲。
-- **這是 SurfaceFlinger 呈現節奏，不是遊戲引擎內部 GPU render time，也不能直接當作 1% Low FPS。** 它是定位呈現卡頓的輔助證據。
+- 平均 FPS 由平均呈現間隔換算；1% Low 是最慢 1% 呈現影格的平均 FPS。兩者都是 SurfaceFlinger 呈現層估算，不是遊戲引擎內部 GPU render time；若韌體沒有公開遊戲 layer，顯示 N/A，不會以螢幕更新率猜值。
+
+### GPU 溫度監測
+- 每 5 秒掃描 `/sys/class/thermal/thermal_zone*`，只接受名稱明確包含 GPU、SGPU、Xclipse 或 G3D 的感測器。
+- CPU／SoC 感測器不會被標成 GPU 溫度；無法讀取或韌體未公開 GPU 感測器時顯示 N/A。
 
 ### 熱與記憶體保護
 - 讀取 Android thermalservice 節流等級；中度或更高、溫度狀態未知時停止提高 GPU 下限並嘗試還原。
@@ -37,7 +41,7 @@
 
 ### HUD 與還原
 - 使用者從主畫面明確啟動懸浮 HUD；HUD 透過既有 Shizuku Binder 讀取快照，不另開 GPU sysfs 讀取或寫入通道。
-- 主畫面與 HUD 顯示 GPU、CPU 及可取得的 SurfaceFlinger 統計。
+- HUD 縮小模式固定顯示三行：GPU 負載／實際時脈／GPU 溫度、CPU 使用率／頻率政策、平均 FPS／1% Low；展開後可查看完整診斷資料。
 - GPU 修改前先備份原始值，記錄韌體指紋與最後套用值；每次寫入後讀回驗證。
 - 還原前檢查備份完整性及目前值是否仍符合本程式最後套用紀錄；外部已修改時拒絕盲目覆寫。
 - 還原失敗保留備份，不以硬編碼值猜測。重新連線時先處理舊備份。
@@ -84,10 +88,11 @@ CI 會執行：
 
 | 項目 | 狀態 |
 |---|---|
-| CPU / GPU 遙測程式與單元測試 | CI 驗證中 |
+| CPU / GPU／GPU 溫度遙測程式與單元測試 | CI 驗證中 |
 | Android Lint、Debug / Release 建置 | CI 驗證中 |
 | SM-A5560 Shizuku CPU sysfs 讀取權限 | 待實機確認 |
-| SM-A5560 SurfaceFlinger 鳴潮 layer 可見性 | 待實機確認 |
+| SM-A5560 SurfaceFlinger 鳴潮 layer 可見性及 FPS 估算 | 待實機確認 |
+| SM-A5560 GPU thermal zone 是否公開及可讀 | 待實機確認 |
 | SurfaceFlinger droppedFrames 與呈現間隔對照遊戲卡頓 | 待實機確認 |
 | SGPU 自適應寫入與還原 | 需在目前韌體重新驗收 |
 | HUD 長時間穩定性 | 待實機確認 |
