@@ -65,6 +65,37 @@ class GpuTelemetryTest {
     }
 
     @Test
+    fun refusesAdaptiveLoadWhenCandidateSourcesDisagree() {
+        val values = mapOf(
+            GpuSysfsPaths.LOAD_CANDIDATES[0] to "92",
+            GpuSysfsPaths.LOAD_CANDIDATES[1] to "41%"
+        )
+        val snapshot = GpuTelemetryCollector(
+            readText = { values[it] },
+            clockMs = { 3500L }
+        ).sample()
+
+        assertNull(snapshot.gpuLoadPercent(3500L, 3000L))
+        assertTrue(snapshot.gpuLoad?.error?.contains("差異") == true)
+        assertEquals(4, snapshot.loadSourceReadings.size)
+    }
+
+    @Test
+    fun acceptsCandidateSourcesWhenExplicitPercentagesAgree() {
+        val values = mapOf(
+            GpuSysfsPaths.LOAD_CANDIDATES[0] to "78",
+            GpuSysfsPaths.LOAD_CANDIDATES[1] to "84%"
+        )
+        val snapshot = GpuTelemetryCollector(
+            readText = { values[it] },
+            clockMs = { 3600L }
+        ).sample()
+
+        assertEquals(78, snapshot.gpuLoadPercent(3600L, 3000L))
+        assertEquals(2, snapshot.loadSourceReadings.count { it.error == null })
+    }
+
+    @Test
     fun reportsUnavailableInsteadOfFabricatingLoadWhenNoCandidateCanBeRead() {
         val snapshot = GpuTelemetryCollector(
             readText = { null },
