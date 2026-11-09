@@ -29,6 +29,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         private const val AVAILABLE_NODE = "$NODE/available_frequencies"
         // Faster control response: two consecutive load samples now require ~2 s, not ~4 s.
         private const val POLL_MS = 1000L
+        // Activity-manager dumpsys is expensive; reuse the last foreground result
+        // between checks while keeping the GPU controller responsive at 1 Hz.
+        private const val FOREGROUND_SAMPLE_INTERVAL_MS = 2000L
         private const val THERMAL_SAMPLE_INTERVAL_MS = 5000L
         private const val THERMAL_TIMEOUT_MS = 2500L
         private const val DUMPSYS_TIMEOUT_MS = 3000L
@@ -60,6 +63,8 @@ class GpuUserService : IAcceleratorService.Stub() {
     @Volatile private var thermalStatus: Int? = null
     @Volatile private var memoryPressureSnapshot = MemoryPressure.UNKNOWN
     private var lastThermalSampleAtMs = 0L
+    private var lastForegroundCheckAtMs = 0L
+    private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
@@ -108,6 +113,8 @@ class GpuUserService : IAcceleratorService.Stub() {
         thermalStatus = null
         memoryPressureSnapshot = MemoryPressure.UNKNOWN
         lastThermalSampleAtMs = 0L
+        lastForegroundCheckAtMs = 0L
+        cachedForegroundResult = ForegroundResult(null, "尚未偵測")
         adaptiveHysteresis.reset()
         scheduleLocked(0L)
         status = "監控啟動（Shizuku UID=$uid）；${gpuSummary()}；等待鳴潮"
@@ -183,7 +190,25 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         // Potentially slow dumpsys calls execute outside the controller lock.
-        val detection = readForeground()
+        // The GPU control loop remains 1 Hz, but foreground detection is cached
+        // for 2 seconds to avoid repeatedly launching dumpsys during gameplay.
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val refreshForeground = synchronized(lock) {
+            monitoring && (lastForegroundCheckAtMs == 0L ||
+                nowElapsedMs - lastForegroundCheckAtMs >= FOREGROUND_SAMPLE_INTERVAL_MS)
+        }
+        val detection = if (refreshForeground) {
+            val fresh = readForeground()
+            synchronized(lock) {
+                if (monitoring) {
+                    cachedForegroundResult = fresh
+                    lastForegroundCheckAtMs = nowElapsedMs
+                }
+                cachedForegroundResult
+            }
+        } else {
+            synchronized(lock) { cachedForegroundResult }
+        }
         synchronized(lock) {
             if (monitoring && detection.packageName == GAME) framePresentationMonitor.start()
         }
@@ -207,18 +232,20 @@ class GpuUserService : IAcceleratorService.Stub() {
                     future = null
                 }
             } else {
-                pollLocked(detection, shouldSampleThermal, sampledThermalStatus)
+                pollLocked(detection, refreshForeground, shouldSampleThermal, sampledThermalStatus)
             }
         }
     }
 
     private fun pollLocked(
         detection: ForegroundResult,
+        foregroundSampled: Boolean,
         thermalSampled: Boolean,
         sampledThermalStatus: Int?
     ) {
         val foreground = detection.packageName
         if (foreground == null) {
+            if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
                 framePresentationMonitor.stop()
@@ -278,6 +305,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
+        if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
             framePresentationMonitor.stop()
