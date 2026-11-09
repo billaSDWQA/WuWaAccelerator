@@ -258,8 +258,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val binderBundle = Bundle().apply {
+            putBinder(GpuOverlayService.EXTRA_REMOTE_BINDER, remote.asBinder())
+        }
         val intent = Intent(this, GpuOverlayService::class.java).apply {
-            putExtra(GpuOverlayService.EXTRA_REMOTE_BINDER, remote.asBinder())
+            putExtra(GpuOverlayService.EXTRA_REMOTE_BUNDLE, binderBundle)
         }
         try {
             // This is launched directly from a visible Activity in response to a
