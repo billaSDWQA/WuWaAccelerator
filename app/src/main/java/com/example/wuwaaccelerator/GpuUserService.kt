@@ -527,8 +527,8 @@ class GpuUserService : IAcceleratorService.Stub() {
                 state.original,
                 state.lastApplied,
                 state.previousApplied
-            ).joinToString("\\n", postfix = "\\n")
-            val complete = payload + sha256(payload) + "\\n"
+            ).joinToString("\n", postfix = "\n")
+            val complete = payload + sha256(payload) + "\n"
             val temp = File(directory, "gpu-state-v2.tmp")
             tempFile = temp
             if (temp.exists() && !temp.delete()) return false
@@ -565,7 +565,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!file.isFile) return null
             val lines = file.readLines(StandardCharsets.UTF_8)
             if (lines.size != 6 || lines[0] != "2") return null
-            val payload = lines.take(5).joinToString("\\n", postfix = "\\n")
+            val payload = lines.take(5).joinToString("\n", postfix = "\n")
             if (sha256(payload) != lines[5] ||
                 !GpuFrequencyPolicy.isValid(lines[2]) ||
                 !GpuFrequencyPolicy.isValid(lines[3]) ||
@@ -661,7 +661,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!legacyBackup.isFile) return null
             val lines = legacyBackup.readLines(StandardCharsets.UTF_8)
             if (lines.size != 4 || lines[0] != "1") return null
-            val payload = "1\\n${lines[1]}\\n${lines[2]}\\n"
+            val payload = "1\n${lines[1]}\n${lines[2]}\n"
             if (sha256(payload) != lines[3] || !GpuFrequencyPolicy.isValid(lines[2])) {
                 null
             } else {
