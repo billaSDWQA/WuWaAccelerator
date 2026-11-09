@@ -53,7 +53,7 @@ internal class GpuTemperatureMonitor(
         if (future?.isDone == false && future?.isCancelled == false) return
         running = true
         future = executor.scheduleWithFixedDelay(
-            { sample() }, 0L, intervalMs, TimeUnit.MILLISECONDS
+            { runCatching { sample() } }, 0L, intervalMs, TimeUnit.MILLISECONDS
         )
     }
 
