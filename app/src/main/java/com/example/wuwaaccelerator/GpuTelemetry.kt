@@ -48,7 +48,8 @@ internal data class GpuTelemetrySnapshot(
     val governor: GpuTelemetryMetric?,
     val availableFrequencies: GpuTelemetryMetric?,
     val gpuLoad: GpuTelemetryMetric?,
-    val sampleError: String? = null
+    val sampleError: String? = null,
+    val loadSourceReadings: List<GpuTelemetryMetric> = emptyList()
 ) {
     fun gpuLoadPercent(nowElapsedMs: Long, maximumAgeMs: Long): Int? {
         if (capturedAtElapsedMs <= 0L || nowElapsedMs - capturedAtElapsedMs > maximumAgeMs) {
@@ -113,6 +114,16 @@ internal data class GpuTelemetrySnapshot(
             }
         }
 
+        if (loadSourceReadings.isNotEmpty()) {
+            lines += "候選負載來源核對："
+            loadSourceReadings.forEach { metric ->
+                val source = metric.sourcePath.substringAfterLast('/')
+                val value = metric.normalizedValue?.let { "$it%" } ?: "不可用"
+                val detail = metric.error?.let { "（$it）" } ?: ""
+                lines += "$source：$value，raw=${metric.rawValue ?: "無"}$detail"
+            }
+        }
+
         sampleError?.let { lines += "取樣器錯誤：" + it }
         lines += "注意：min_freq 是最低頻率設定，不代表 GPU 實際時脈；實際值以 cur_freq 為準。"
         return lines.joinToString("\n")
@@ -160,10 +171,12 @@ internal class GpuTelemetryCollector(
         val governor = readMetric(GpuSysfsPaths.GOVERNOR, null) { it.takeIf(String::isNotBlank) }
         val available = readMetric(GpuSysfsPaths.AVAILABLE_FREQUENCIES, "kHz") {
             val values = it.split(Regex("\\s+"))
-                .mapNotNull { token -> token.toLongOrNull()?.takeIf { value -> value >= 0L } }
-            values.takeIf { list -> list.isNotEmpty() }?.joinToString(" ")
+                .mapNotNull { token -> token.toLongOrNull()?.takeIf { value -> value > 0L } }
+            if (values.isEmpty()) null
+            else if (values.size != it.split(Regex("\\s+")).size) null
+            else values.joinToString(" ")
         }
-        val load = readGpuLoad()
+        val (load, loadSources) = readGpuLoads()
 
         return GpuTelemetrySnapshot(
             capturedAtElapsedMs = clockMs(),
@@ -172,29 +185,50 @@ internal class GpuTelemetryCollector(
             maxFrequency = max,
             governor = governor,
             availableFrequencies = available,
-            gpuLoad = load
+            gpuLoad = load,
+            loadSourceReadings = loadSources
         )
     }
 
-    private fun readGpuLoad(): GpuTelemetryMetric {
-        var firstUnparsed: GpuTelemetryMetric? = null
-        for (path in loadCandidates) {
-            val metric = readMetric(path, "%") { raw ->
+    private fun readGpuLoads(): Pair<GpuTelemetryMetric, List<GpuTelemetryMetric>> {
+        val readings = loadCandidates.map { path ->
+            readMetric(path, "%") { raw ->
                 GpuAdaptivePolicy.parseGpuLoadPercent(raw)?.toString()
             }
-            if (metric.error == null && metric.normalizedValue != null) return metric
-            if (firstUnparsed == null && metric.rawValue != null) {
-                firstUnparsed = metric
-            }
         }
-        return firstUnparsed ?: GpuTelemetryMetric(
-            sourcePath = loadCandidates.joinToString(", "),
-            rawValue = null,
-            normalizedValue = null,
-            unit = "%",
-            sampledAtElapsedMs = clockMs(),
-            error = "所有候選節點均不存在或無法讀取"
-        )
+        val valid = readings.filter {
+            it.error == null && it.normalizedValue?.toIntOrNull() in 0..100
+        }
+        if (valid.isEmpty()) {
+            val firstUnparsed = readings.firstOrNull { it.rawValue != null }
+            val unavailable = firstUnparsed ?: GpuTelemetryMetric(
+                sourcePath = loadCandidates.joinToString(", "),
+                rawValue = null,
+                normalizedValue = null,
+                unit = "%",
+                sampledAtElapsedMs = clockMs(),
+                error = "所有候選節點均不存在或無法讀取"
+            )
+            return unavailable to readings
+        }
+
+        val values = valid.mapNotNull { it.normalizedValue?.toIntOrNull() }
+        val spread = (values.maxOrNull() ?: 0) - (values.minOrNull() ?: 0)
+        if (valid.size > 1 && spread > MAX_SOURCE_SPREAD_PERCENT) {
+            val conflict = GpuTelemetryMetric(
+                sourcePath = valid.joinToString(", ") { it.sourcePath },
+                rawValue = valid.joinToString("; ") {
+                    "${it.sourcePath}=${it.rawValue}"
+                }.take(240),
+                normalizedValue = null,
+                unit = "%",
+                sampledAtElapsedMs = clockMs(),
+                error = "多個 GPU 負載來源差異達 $spread 個百分點；停用本次自適應升頻"
+            )
+            return conflict to readings
+        }
+
+        return valid.first() to readings
     }
 
     private fun readMetric(
@@ -235,6 +269,10 @@ internal class GpuTelemetryCollector(
 
     private fun parseNonNegativeLong(raw: String): String? =
         raw.toLongOrNull()?.takeIf { it >= 0L }?.toString()
+
+    companion object {
+        private const val MAX_SOURCE_SPREAD_PERCENT = 15
+    }
 }
 
 internal class GpuTelemetryMonitor(
