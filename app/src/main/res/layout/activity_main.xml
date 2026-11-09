@@ -50,6 +50,31 @@
             android:textSize="12sp" />
     </ScrollView>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_overlay"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:text="啟動遊戲內 GPU HUD"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btn_overlay_stop"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="4dp"
+            android:layout_weight="1"
+            android:text="關閉 HUD"
+            android:textSize="13sp" />
+    </LinearLayout>
+
     <Button
         android:id="@+id/btn_start"
         android:layout_width="match_parent"

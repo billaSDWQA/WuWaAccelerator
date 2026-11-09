@@ -2,7 +2,7 @@
 
 這是一個針對 **Samsung Galaxy A55 5G（SM-A5560／Exynos 1480／Xclipse 530）** 的 Shizuku 工具。它只嘗試調整一個 GPU devfreq 節點，不修改 CPU、記憶體、網路、螢幕刷新率或遊戲檔案。
 
-> **目前版本：0.8.0 測試版。** 本版重整了 Shizuku 執行身分、前景辨識、GPU 寫入診斷和還原流程。CI 通過只代表程式可編譯與單元測試通過；A55 實機寫入和遊戲幀率仍須另外驗證。
+> **目前版本：0.9.0 測試版。** 本版接入 A55 SGPU `current_utilization`，並新增使用者主動啟動的唯讀遊戲懸浮 HUD。CI 通過只代表程式可編譯與單元測試通過；Shizuku 實機讀取、HUD 長時間運作、頻率控制效果與遊戲幀率仍須另外驗證。
 
 ## 功能範圍
 
@@ -48,12 +48,13 @@ Shizuku 安裝與啟動方式請看官方指南：https://shizuku.rikka.app/guid
 
 ### 安裝 Debug APK
 
-1. 開啟本專案 GitHub 的 **Actions → Android CI**。
-2. 進入成功的執行紀錄，在 Artifacts 下載 `WuWaAccelerator-debug`。
+1. 開啟本專案 GitHub 的 **Actions → Android CI 0.9.0**。
+2. 進入最新且成功的執行紀錄，在 Artifacts 下載 `WuWaAccelerator-0.9.0-debug`。
 3. 解壓縮 ZIP，安裝其中的 APK。
 4. 啟動 Shizuku，再開啟本程式並授權。
-5. 程式連上 Shizuku 後會自動開始監控；再開啟鳴潮。
-6. 要停止時，按 **「停止並還原 GPU 設定」**，並確認狀態顯示已還原。
+5. 程式連上 Shizuku 後會自動開始監控。第一次使用 HUD 時，按 **「啟動遊戲內 GPU HUD」**，依系統畫面授予「顯示在其他應用程式上層」權限，回到加速器後再按一次。
+6. 開啟鳴潮。懸浮窗可拖曳；點擊標題展開詳細遙測，點擊「×」或通知中的「停止 HUD」可關閉。
+7. 要停止 GPU 自動調頻時，回到加速器按 **「停止並還原 GPU 設定」**；成功還原時也會關閉 HUD。
 
 > GitHub Hosted Runner 每次建立的 Debug 簽章可能不同。若新版 APK 無法直接覆蓋舊版，需先解除安裝舊版再安裝新版。解除安裝前，應先在程式內按停止並確認 GPU 已還原。
 
@@ -127,4 +128,42 @@ Debug APK 輸出位置：
 前景偵測與 thermalservice 的 dumpsys 命令已移出 GPU 控制鎖；若 shell 命令正在等待逾時，手動停止與還原仍可取得控制鎖。GPU sysfs 讀寫和少量 /proc/meminfo 讀取仍在控制流程中，不能保證核心節點 I/O 一定有固定返回時間。
 
 FPS 尚未接入。未確認鳴潮正確 layer 之前，不以螢幕刷新率、App 自身 Choreographer 或 GPU 負載估算遊戲 FPS。
+
+
+
+## 0.9.0 A55 SGPU 負載來源整合
+
+- 新增主要負載節點：`/sys/class/devfreq/10e00000.sgpu/interface/current_utilization`。此節點在 Galaxy A55 SM-A5560 上已透過 ADB 實測可讀，遊戲運作樣本為 62–86%，手機主畫面閒置樣本為 0%。這些是有限次手動取樣，不是完整效能基準測試。
+- 同步讀取 `interface/utilization_source` 與 `interface/available_utilization_sources`。目前裝置回報的模式為 `jiffies`；程式只在模式確認為 `jiffies` 時，才把 `current_utilization` 傳給自適應控制器。若模式缺失或不同，資料顯示為不可用，不猜測其語義，也不自動切換驅動模式。
+- 為避免把其他驅動的格式誤認成百分比，`current_utilization` 僅接受純整數 0–100；自動調頻還要求目前模式為 `jiffies`，且可用來源清單確實包含 `jiffies`。時間戳倒退、資料過期或模式未驗證時一律不提供給控制器。
+- 額外唯讀顯示 `current_cu_utilization` 作為 CU 輔助指標，明確標示它不是整體 GPU 使用率；目前 A55 所見 0% 不會覆蓋 SGPU 整體利用率。
+- 新節點優先於原有四個候選負載來源；原有來源仍保留交叉檢查。若多個有效來源差異超過 15 個百分點，該次樣本仍會拒絕交給自適應升頻。
+- `current_cu_utilization` 不作為整體 GPU 使用率，因為目前 A55 實測為 0，且不能代表整顆 GPU 的工作負載。
+- `cur_freq=0` 會顯示為「閒置或驅動未回報」，不再呈現成 0 MHz 的有效運作時脈；負載 0% 仍是有效讀值。
+- UI 與自適應控制器仍共用同一份每秒遙測快照，沒有新增第二套 GPU 取樣器，也不寫入 utilization source 設定。
+- 將 Shizuku UserService 版本標記由 7 升至 8，避免舊 daemon 繼續使用更新前的遙測類別。
+
+### 0.9.0 專用 CI
+
+- 分支專用工作流程：`.github/workflows/android-ci-0.9.yml`。
+- 推送至 `feature/0.9.0-sgpu-utilization` 時執行單元測試、Android Lint、Debug/Release APK 建置，並上傳 Debug APK artifact。
+- CI 綠燈僅代表這些自動化檢查通過；不代表已在 Galaxy A55 上完成 Shizuku 讀取驗證或遊戲效能驗收。
+
+### 0.9.0 遊戲懸浮 HUD
+
+- HUD 由加速器主畫面的「啟動遊戲內 GPU HUD」按鈕明確啟動；若尚未授予權限，會開啟 Android「顯示在其他應用程式上層」設定頁。
+- HUD 透過 Intent 傳入目前 Shizuku UserService 的 Binder，只讀取既有遙測快照；沒有建立第二個 sysfs collector，也沒有任何 GPU 寫入功能。
+- Binder 死亡時會自動關閉 HUD；重新連線後，舊 Binder 的延遲死亡通知不會誤關新 HUD。HUD 拖曳位置會限制在螢幕邊界內。
+- 任何超過 3 秒或時間戳異常的快照，主面板與 HUD 都不會繼續顯示舊 GPU 負載／實際時脈；改顯示 N/A 或過期狀態。
+- 懸浮窗可拖曳；點擊標題可在簡潔模式與詳細遙測間切換；可使用「×」或前景通知的「停止 HUD」動作關閉。
+- HUD 使用 `specialUse` 前景服務類型及持續通知。它只在使用者從可見 Activity 點擊啟動，不會嘗試在背景自行啟動。
+- HUD 顯示驅動回報的 SGPU 利用率、實際時脈與遙測來源；目前尚未包含遊戲 layer FPS，也不代表遊戲內部 GPU 計時器。
+- Android 官方要求 overlay 權限由使用者明確授予；Android 14+ 的 `specialUse` 需要宣告用途，且應用商店發佈可能需要額外政策審查。請勿移除通知或偷偷常駐。
+
+### 0.9.0 尚未完成的項目
+
+- Shizuku UserService 在 SM-A5560 上讀取新節點，並與 ADB 同時讀值比對。
+- HUD 的 SM-A5560 實機視覺、拖曳手感、遊戲切前景後持續更新與長時間穩定性驗證。
+- 較短取樣週期與短暫掉幀尖峰的關聯測試。
+- 實際 FPS、長時間溫度、穩定性和 60 FPS 驗證。
 
