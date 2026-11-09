@@ -5,10 +5,14 @@ internal object GpuOverlayTextFormatter {
 
     fun compact(snapshotText: String): String {
         val lines = snapshotText.lineSequence().map(String::trim).toList()
-        val load = lines.firstOrNull {
+        val stale = lines.any {
+            it.startsWith("取樣新鮮度：") &&
+                (it.contains("資料已過期") || it.contains("時間戳異常"))
+        }
+        val load = if (stale) null else lines.firstOrNull {
             it.startsWith("GPU 驅動利用率（SGPU）：") || it.startsWith("GPU 負載：")
         }?.substringAfter("：")
-        val clock = lines.firstOrNull {
+        val clock = if (stale) null else lines.firstOrNull {
             it.startsWith("GPU 實際時脈 cur_freq：")
         }?.substringAfter("：")
 
