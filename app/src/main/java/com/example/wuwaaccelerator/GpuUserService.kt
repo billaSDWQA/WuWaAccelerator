@@ -44,6 +44,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val lock = Any()
     private val scheduler: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
+    private val systemQueryExecutor = Executors.newFixedThreadPool(2) { Thread(it, "WuWa-System-Query").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
@@ -61,7 +62,11 @@ class GpuUserService : IAcceleratorService.Stub() {
     @Volatile private var memoryPressureSnapshot = MemoryPressure.UNKNOWN
     private var lastThermalSampleAtMs = 0L
     private var lastForegroundCheckAtMs = 0L
+    private var lastForegroundResultAtMs = 0L
+    private var lastProcessedForegroundResultAtMs = 0L
+    private var foregroundCheckInFlight = false
     private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
+    private var thermalCheckInFlight = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
@@ -107,6 +112,10 @@ class GpuUserService : IAcceleratorService.Stub() {
         memoryPressureSnapshot = MemoryPressure.UNKNOWN
         lastThermalSampleAtMs = 0L
         lastForegroundCheckAtMs = 0L
+        lastForegroundResultAtMs = 0L
+        lastProcessedForegroundResultAtMs = 0L
+        foregroundCheckInFlight = false
+        thermalCheckInFlight = false
         cachedForegroundResult = ForegroundResult(null, "尚未偵測")
         adaptiveHysteresis.reset()
         scheduleLocked(0L)
@@ -143,6 +152,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             restoreLocked()
             telemetryMonitor.shutdown()
             scheduler.shutdownNow()
+            systemQueryExecutor.shutdownNow()
         }
         System.exit(0)
     }
@@ -173,34 +183,65 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        // Potentially slow dumpsys calls execute outside the controller lock.
-        // The GPU control loop remains 1 Hz, but foreground detection is cached
-        // for 2 seconds to avoid repeatedly launching dumpsys during gameplay.
+        // Keep slow dumpsys calls off the 1 Hz control thread.
         val nowElapsedMs = SystemClock.elapsedRealtime()
-        val refreshForeground = synchronized(lock) {
-            monitoring && (lastForegroundCheckAtMs == 0L ||
-                nowElapsedMs - lastForegroundCheckAtMs >= FOREGROUND_SAMPLE_INTERVAL_MS)
+        val requestForeground = synchronized(lock) {
+            monitoring && !foregroundCheckInFlight &&
+                (lastForegroundCheckAtMs == 0L ||
+                    nowElapsedMs - lastForegroundCheckAtMs >= FOREGROUND_SAMPLE_INTERVAL_MS)
         }
-        val detection = if (refreshForeground) {
-            val fresh = readForeground()
+        if (requestForeground) {
             synchronized(lock) {
-                if (monitoring) {
-                    cachedForegroundResult = fresh
+                if (monitoring && !foregroundCheckInFlight) {
+                    foregroundCheckInFlight = true
                     lastForegroundCheckAtMs = nowElapsedMs
+                    systemQueryExecutor.execute {
+                        val fresh = readForeground()
+                        synchronized(lock) {
+                            if (monitoring) {
+                                cachedForegroundResult = fresh
+                                lastForegroundResultAtMs = SystemClock.elapsedRealtime()
+                            }
+                            foregroundCheckInFlight = false
+                        }
+                    }
                 }
-                cachedForegroundResult
             }
-        } else {
-            synchronized(lock) { cachedForegroundResult }
         }
-        synchronized(lock) {
+
+        val detectionState = synchronized(lock) {
+            if (!monitoring || lastForegroundResultAtMs == 0L) return
+            val freshResult = lastForegroundResultAtMs > lastProcessedForegroundResultAtMs
+            if (freshResult) lastProcessedForegroundResultAtMs = lastForegroundResultAtMs
+            val stale = nowElapsedMs - lastForegroundResultAtMs > 6000L
+            val result = if (stale) ForegroundResult(null, "前景偵測資料逾時") else cachedForegroundResult
+            result to freshResult
         }
-        val shouldSampleThermal = synchronized(lock) {
-            monitoring &&
-                detection.packageName == GAME &&
-                System.currentTimeMillis() - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS
+        val detection = detectionState.first
+        val foregroundSampled = detectionState.second
+
+        val requestThermal = synchronized(lock) {
+            monitoring && detection.packageName == GAME && !thermalCheckInFlight &&
+                (lastThermalSampleAtMs == 0L ||
+                    nowElapsedMs - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS)
         }
-        val sampledThermalStatus = if (shouldSampleThermal) readThermalStatus() else null
+        if (requestThermal) {
+            synchronized(lock) {
+                if (monitoring && !thermalCheckInFlight) {
+                    thermalCheckInFlight = true
+                    systemQueryExecutor.execute {
+                        val result = readThermalStatus()
+                        synchronized(lock) {
+                            if (monitoring) {
+                                thermalStatus = result
+                                lastThermalSampleAtMs = SystemClock.elapsedRealtime()
+                            }
+                            thermalCheckInFlight = false
+                        }
+                    }
+                }
+            }
+        }
 
         synchronized(lock) {
             // If stop was requested during shell I/O, never re-apply a boost.
@@ -212,16 +253,14 @@ class GpuUserService : IAcceleratorService.Stub() {
                     future = null
                 }
             } else {
-                pollLocked(detection, refreshForeground, shouldSampleThermal, sampledThermalStatus)
+                pollLocked(detection, foregroundSampled)
             }
         }
     }
 
     private fun pollLocked(
         detection: ForegroundResult,
-        foregroundSampled: Boolean,
-        thermalSampled: Boolean,
-        sampledThermalStatus: Int?
+        foregroundSampled: Boolean
     ) {
         val foreground = detection.packageName
         if (foreground == null) {
@@ -247,11 +286,6 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         if (foreground == GAME) {
             exitSamples = 0
-            if (thermalSampled) {
-                thermalStatus = sampledThermalStatus
-                lastThermalSampleAtMs = System.currentTimeMillis()
-            }
-
             val gpuLoad = readGpuLoadPercent()
             val memoryPressure = readMemoryPressure()
             memoryPressureSnapshot = memoryPressure
