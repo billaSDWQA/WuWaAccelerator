@@ -2,6 +2,11 @@ package com.example.wuwaaccelerator
 
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 internal data class CpuCoreLoad(
     val core: Int,
@@ -79,22 +84,28 @@ internal class CpuTelemetryCollector(
         val statText = readText("/proc/stat")
             ?: return CpuTelemetrySnapshot(now, null, emptyList(), emptyList(), null, "無法讀取 /proc/stat")
         val currentCounters = CpuTelemetryParser.parseProcStat(statText)
+        var totalDelta = 0L
+        var busyDelta = 0L
         val coreLoads = currentCounters.mapNotNull { (core, counters) ->
             val previous = previousCounters[core] ?: return@mapNotNull null
-            val totalDelta = counters.total - previous.total
-            val idleDelta = counters.idle - previous.idle
-            if (totalDelta <= 0L || idleDelta < 0L || idleDelta > totalDelta) {
+            val elapsed = counters.total - previous.total
+            val idle = counters.idle - previous.idle
+            if (elapsed <= 0L || idle < 0L || idle > elapsed) {
                 null
             } else {
-                val percent = (((totalDelta - idleDelta).toDouble() / totalDelta) * 100.0)
+                totalDelta += elapsed
+                busyDelta += elapsed - idle
+                val percent = (((elapsed - idle).toDouble() / elapsed) * 100.0)
                     .toInt().coerceIn(0, 100)
                 CpuCoreLoad(core, percent)
             }
         }
         previousCounters = currentCounters
 
-        val overall = if (coreLoads.isEmpty()) null else
-            coreLoads.map { it.utilizationPercent }.average().toInt().coerceIn(0, 100)
+        // Weight by actual CPU time deltas; do not average cores equally.
+        val overall = if (totalDelta > 0L) {
+            ((busyDelta.toDouble() / totalDelta) * 100.0).toInt().coerceIn(0, 100)
+        } else null
 
         val policies = listPolicyDirectories().sorted().mapNotNull { directory ->
             val name = directory.substringAfterLast('/')
@@ -124,6 +135,62 @@ internal class CpuTelemetryCollector(
         readText(path)?.toLongOrNull()?.takeIf { it > 0L }
 }
 
+/** A single sampler owns /proc/stat deltas so UI and HUD cannot distort each other's readings. */
+internal class CpuTelemetryMonitor(
+    private val collector: CpuTelemetryCollector = CpuTelemetryCollector(),
+    private val intervalMs: Long = 1000L
+) {
+    private val executor: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-CPU-Telemetry").apply { isDaemon = true } }
+    private val latest = AtomicReference(
+        CpuTelemetrySnapshot(0L, null, emptyList(), emptyList(), null, "尚未取樣")
+    )
+    @Volatile private var running = false
+    private var future: ScheduledFuture<*>? = null
+
+    @Synchronized
+    fun start() {
+        if (future?.isDone == false && future?.isCancelled == false) return
+        running = true
+        future = executor.scheduleWithFixedDelay(
+            {
+                runCatching { collector.sample() }.onSuccess { latest.set(it) }
+                    .onFailure {
+                        latest.set(CpuTelemetrySnapshot(
+                            System.nanoTime() / 1_000_000L, null, emptyList(), emptyList(), null,
+                            "取樣失敗：${it.javaClass.simpleName}"
+                        ))
+                    }
+            },
+            0L,
+            intervalMs,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    @Synchronized
+    fun stop() {
+        running = false
+        future?.cancel(false)
+        future = null
+    }
+
+    fun displayText(): String {
+        val snapshot = latest.get()
+        return if (running && snapshot.sampledAtMs > 0L &&
+            System.nanoTime() / 1_000_000L - snapshot.sampledAtMs > intervalMs * 3
+        ) {
+            "CPU 監測：資料已過期"
+        } else snapshot.toDisplayText()
+    }
+
+    @Synchronized
+    fun shutdown() {
+        stop()
+        executor.shutdownNow()
+    }
+}
+
 internal data class CpuStatCounters(
     val total: Long,
     val idle: Long
@@ -139,9 +206,12 @@ internal object CpuTelemetryParser {
             if (!label.matches(Regex("cpu\\d+")) || parts.size < 5) return@forEach
             val core = label.removePrefix("cpu").toIntOrNull() ?: return@forEach
             val values = parts.drop(1).map { it.toLongOrNull() ?: return@forEach }
-            if (values.size < 4 || values.any { it < 0L }) return@forEach
-            val total = values.sum()
-            val idle = values[3] + (values.getOrNull(4) ?: 0L)
+            if (values.size < 4 || values.take(8).any { it < 0L }) return@forEach
+            // Linux /proc/stat guest and guest_nice are already included in user/nice.
+            // Sum the first eight fields only to avoid double-counting them.
+            val counters = values.take(8)
+            val total = counters.sum()
+            val idle = counters[3] + (counters.getOrNull(4) ?: 0L)
             if (total >= idle) result[core] = CpuStatCounters(total, idle)
         }
         return result
