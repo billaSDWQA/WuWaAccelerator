@@ -38,7 +38,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(6)
+            .version(7)
     }
 
     private val permissionResultListener =
@@ -326,7 +326,7 @@ class MainActivity : AppCompatActivity() {
             governor,
             table,
             "FPS：此版本尚未取得可信的遊戲 present-to-present 數據，不顯示猜測值。"
-        ).joinToString("\\n")
+        ).joinToString("\n")
     }
 
     private fun showStatus(message: String) {
