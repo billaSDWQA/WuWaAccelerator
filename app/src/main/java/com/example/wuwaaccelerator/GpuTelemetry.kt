@@ -23,6 +23,7 @@ internal object GpuSysfsPaths {
     const val GOVERNOR = "$NODE/governor"
     const val AVAILABLE_FREQUENCIES = "$NODE/available_frequencies"
     const val CURRENT_UTILIZATION = "$NODE/interface/current_utilization"
+    const val CURRENT_CU_UTILIZATION = "$NODE/interface/current_cu_utilization"
     const val UTILIZATION_SOURCE = "$NODE/interface/utilization_source"
     const val AVAILABLE_UTILIZATION_SOURCES = "$NODE/interface/available_utilization_sources"
 
@@ -55,22 +56,37 @@ internal data class GpuTelemetrySnapshot(
     val sampleError: String? = null,
     val loadSourceReadings: List<GpuTelemetryMetric> = emptyList(),
     val utilizationSource: GpuTelemetryMetric? = null,
-    val availableUtilizationSources: GpuTelemetryMetric? = null
+    val availableUtilizationSources: GpuTelemetryMetric? = null,
+    val computeUnitUtilization: GpuTelemetryMetric? = null
 ) {
     fun gpuLoadPercent(nowElapsedMs: Long, maximumAgeMs: Long): Int? {
-        if (capturedAtElapsedMs <= 0L || nowElapsedMs - capturedAtElapsedMs > maximumAgeMs) {
+        if (capturedAtElapsedMs <= 0L || maximumAgeMs < 0L || nowElapsedMs < capturedAtElapsedMs) {
             return null
         }
         val reading = gpuLoad?.takeIf { it.error == null } ?: return null
-        // The A55's current_utilization semantics were verified with the driver's
-        // active jiffies mode. Do not feed that node to adaptive policy under an
-        // unknown or different mode until its semantics have been calibrated.
+        val sampledAt = reading.sampledAtElapsedMs
+        if (sampledAt <= 0L || nowElapsedMs < sampledAt || nowElapsedMs - sampledAt > maximumAgeMs) {
+            return null
+        }
+        // The A55's current_utilization is only trusted after confirming both
+        // the active driver mode and that the driver advertises that mode.
         if (reading.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION &&
-            utilizationSource?.normalizedValue != "jiffies"
+            !isVerifiedSgpuJiffiesSource()
         ) return null
         return reading.normalizedValue
             ?.toIntOrNull()
             ?.takeIf { it in 0..100 }
+    }
+
+    private fun isVerifiedSgpuJiffiesSource(): Boolean {
+        if (utilizationSource?.normalizedValue != "jiffies") return false
+        val supported = availableUtilizationSources
+            ?.takeIf { it.error == null }
+            ?.normalizedValue
+            ?.split(Regex("\\\\s+"))
+            ?.toSet()
+            ?: return false
+        return "jiffies" in supported
     }
 
     fun compactSummary(): String {
@@ -93,17 +109,23 @@ internal data class GpuTelemetrySnapshot(
         val ageMs = (nowElapsedMs - capturedAtElapsedMs).coerceAtLeast(0L)
         val freshness = if (ageMs > STALE_AFTER_MS) "資料已過期" else "資料新鮮"
         val state = if (monitorRunning) "執行中" else "已停止（保留最後讀值）"
-        val loadModeVerified = gpuLoad?.let { reading ->
-            reading.error == null &&
-                (reading.sourcePath != GpuSysfsPaths.CURRENT_UTILIZATION ||
-                    utilizationSource?.normalizedValue == "jiffies")
+        val selectedLoad = gpuLoad?.takeIf { it.error == null }
+        val loadModeVerified = selectedLoad?.let { reading ->
+            reading.sourcePath != GpuSysfsPaths.CURRENT_UTILIZATION || isVerifiedSgpuJiffiesSource()
         } == true
-        val loadValue = if (loadModeVerified) gpuLoad?.normalizedValue else null
+        val loadValue = if (loadModeVerified) selectedLoad?.normalizedValue else null
         val loadText = if (loadValue != null) "$loadValue%" else "不可用"
+        val loadLabel = if (selectedLoad?.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION) {
+            "GPU 驅動利用率（SGPU）"
+        } else {
+            "GPU 負載"
+        }
+        val cuValue = computeUnitUtilization?.takeIf { it.error == null }?.normalizedValue
         val lines = mutableListOf(
             "GPU 監視器：$state",
             "取樣新鮮度：" + freshness + "（" + ageMs + " ms）",
-            "GPU 負載：$loadText",
+            "$loadLabel：$loadText",
+            "GPU CU 利用率（輔助指標，非整體 GPU 使用率）：" + (cuValue?.let { "$it%" } ?: "不可用"),
             "GPU 實際時脈 cur_freq：" + formatCurrentFrequency(currentFrequency),
             "GPU 最低頻率設定 min_freq：" + formatFrequency(minFrequency),
             "GPU 最高頻率上限 max_freq：" + formatFrequency(maxFrequency),
@@ -119,7 +141,7 @@ internal data class GpuTelemetrySnapshot(
             if (it.error != null) {
                 lines += "負載狀態：" + it.error
             } else if (it.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION && !loadModeVerified) {
-                lines += "負載狀態：utilization_source 未確認為 jiffies；不交給自動調頻"
+                lines += "負載狀態：需要 utilization_source=jiffies 且 available_utilization_sources 包含 jiffies；不交給自動調頻"
             }
         } ?: run {
             lines += "負載狀態：沒有找到可解析的 GPU 負載來源"
@@ -162,7 +184,8 @@ internal data class GpuTelemetrySnapshot(
             maxFrequency = null,
             governor = null,
             availableFrequencies = null,
-            gpuLoad = null
+            gpuLoad = null,
+            computeUnitUtilization = null
         )
 
         fun failed(nowElapsedMs: Long, error: String): GpuTelemetrySnapshot =
@@ -208,6 +231,9 @@ internal class GpuTelemetryCollector(
             GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES,
             null
         ) { it.takeIf(String::isNotBlank) }
+        val computeUnitUtilization = readMetric(GpuSysfsPaths.CURRENT_CU_UTILIZATION, "%") {
+            parseStrictPercent(it)
+        }
         val available = readMetric(GpuSysfsPaths.AVAILABLE_FREQUENCIES, "kHz") {
             val values = it.split(Regex("\\s+"))
                 .mapNotNull { token -> token.toLongOrNull()?.takeIf { value -> value > 0L } }
@@ -227,14 +253,19 @@ internal class GpuTelemetryCollector(
             gpuLoad = load,
             loadSourceReadings = loadSources,
             utilizationSource = utilizationSource,
-            availableUtilizationSources = availableUtilizationSources
+            availableUtilizationSources = availableUtilizationSources,
+            computeUnitUtilization = computeUnitUtilization
         )
     }
 
     private fun readGpuLoads(): Pair<GpuTelemetryMetric, List<GpuTelemetryMetric>> {
         val readings = loadCandidates.map { path ->
             readMetric(path, "%") { raw ->
-                GpuAdaptivePolicy.parseGpuLoadPercent(raw)?.toString()
+                if (path == GpuSysfsPaths.CURRENT_UTILIZATION) {
+                    parseStrictPercent(raw)
+                } else {
+                    GpuAdaptivePolicy.parseGpuLoadPercent(raw)?.toString()
+                }
             }
         }
         val valid = readings.filter { metric ->
@@ -311,6 +342,9 @@ internal class GpuTelemetryCollector(
 
     private fun parseNonNegativeLong(raw: String): String? =
         raw.toLongOrNull()?.takeIf { it >= 0L }?.toString()
+
+    private fun parseStrictPercent(raw: String): String? =
+        raw.toIntOrNull()?.takeIf { it in 0..100 }?.toString()
 
     companion object {
         private const val MAX_SOURCE_SPREAD_PERCENT = 15
