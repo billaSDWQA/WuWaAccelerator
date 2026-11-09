@@ -9,6 +9,10 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import rikka.shizuku.Shizuku
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -18,8 +22,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var statusView: TextView
-    private var acceleratorService: IAcceleratorService? = null
-    private var serviceBound = false
+    private lateinit var telemetryView: TextView
+    @Volatile private var acceleratorService: IAcceleratorService? = null
+    @Volatile private var serviceBound = false
+    private val telemetryExecutor: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-Telemetry-UI").apply { isDaemon = true } }
+    private var telemetryFuture: ScheduledFuture<*>? = null
     private var bindingInProgress = false
 
     private val userServiceArgs by lazy {
@@ -95,6 +103,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         statusView = findViewById(R.id.tv_status)
+        telemetryView = findViewById(R.id.tv_telemetry)
         findViewById<Button>(R.id.btn_start).setOnClickListener { connectAndStart() }
         findViewById<Button>(R.id.btn_stop).setOnClickListener { stopAndRestore() }
 
@@ -112,9 +121,17 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        startTelemetryUpdates()
+    }
+
+    override fun onPause() {
+        stopTelemetryUpdates()
+        super.onPause()
     }
 
     override fun onDestroy() {
+        stopTelemetryUpdates()
+        telemetryExecutor.shutdownNow()
         Shizuku.removeRequestPermissionResultListener(permissionResultListener)
         Shizuku.removeBinderReceivedListener(binderReceivedListener)
         Shizuku.removeBinderDeadListener(binderDeadListener)
@@ -211,6 +228,27 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun startTelemetryUpdates() {
+        if (telemetryFuture?.isDone == false && telemetryFuture?.isCancelled == false) return
+        telemetryFuture = telemetryExecutor.scheduleWithFixedDelay({
+            val remote = acceleratorService
+            val text = if (!serviceBound || remote == null) {
+                "等待 Shizuku GPU 控制服務連線"
+            } else {
+                runCatching { remote.getTelemetrySnapshot() }
+                    .getOrElse { "GPU 遙測讀取失敗：${it.message ?: it.javaClass.simpleName}" }
+            }
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) telemetryView.text = text
+            }
+        }, 0L, 1000L, TimeUnit.MILLISECONDS)
+    }
+
+    private fun stopTelemetryUpdates() {
+        telemetryFuture?.cancel(false)
+        telemetryFuture = null
     }
 
     private fun refreshStatus() {
