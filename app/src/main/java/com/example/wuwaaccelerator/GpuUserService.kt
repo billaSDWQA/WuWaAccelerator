@@ -174,7 +174,9 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         // Potentially slow dumpsys calls execute outside the controller lock.
         val detection = readForeground()
-        if (shouldMonitor && detection.packageName == GAME) framePresentationMonitor.start()
+        synchronized(lock) {
+            if (monitoring && detection.packageName == GAME) framePresentationMonitor.start()
+        }
         val shouldSampleThermal = synchronized(lock) {
             monitoring &&
                 detection.packageName == GAME &&
@@ -185,6 +187,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         synchronized(lock) {
             // If stop was requested during shell I/O, never re-apply a boost.
             if (!monitoring) {
+                framePresentationMonitor.stop()
                 if (hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
                     cpuTelemetryMonitor.stop()
