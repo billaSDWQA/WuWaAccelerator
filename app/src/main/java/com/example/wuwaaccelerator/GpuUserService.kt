@@ -55,8 +55,8 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var boostActive = false
     private var unknownSamples = 0
     private var exitSamples = 0
-    private var thermalStatus: Int? = null
-    private var memoryPressureSnapshot = MemoryPressure.UNKNOWN
+    @Volatile private var thermalStatus: Int? = null
+    @Volatile private var memoryPressureSnapshot = MemoryPressure.UNKNOWN
     private var lastThermalSampleAtMs = 0L
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
