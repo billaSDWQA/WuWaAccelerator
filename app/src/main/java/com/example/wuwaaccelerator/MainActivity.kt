@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(9)
+            .version(10)
     }
 
     private val permissionResultListener =
