@@ -56,6 +56,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var unknownSamples = 0
     private var exitSamples = 0
     private var thermalStatus: Int? = null
+    private var memoryPressureSnapshot = MemoryPressure.UNKNOWN
     private var lastThermalSampleAtMs = 0L
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
@@ -101,6 +102,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         unknownSamples = 0
         exitSamples = 0
         thermalStatus = null
+        memoryPressureSnapshot = MemoryPressure.UNKNOWN
         lastThermalSampleAtMs = 0L
         adaptiveHysteresis.reset()
         scheduleLocked(0L)
@@ -238,6 +240,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
             val gpuLoad = readGpuLoadPercent()
             val memoryPressure = readMemoryPressure()
+            memoryPressureSnapshot = memoryPressure
             val proposedTarget = GpuAdaptivePolicy.chooseTarget(
                 thermalStatus,
                 gpuLoad,
