@@ -291,6 +291,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val sourceArray = json.optJSONArray("loadSources")
+        val sourceLines = if (sourceArray == null || sourceArray.length() == 0) {
+            listOf("負載來源核對：沒有可讀取的候選節點")
+        } else {
+            (0 until sourceArray.length()).mapNotNull { index ->
+                val item = sourceArray.optJSONObject(index) ?: return@mapNotNull null
+                val path = item.optString("source", "未知來源")
+                val label = path.substringAfterLast('/')
+                when (item.optString("status")) {
+                    "AVAILABLE" -> "$label：${item.optString("value")}%"
+                    "MALFORMED" -> "$label：格式異常（${item.optString("raw")}）"
+                    else -> "$label：不可用"
+                }
+            }.let { listOf("負載來源核對（單位皆為百分比；差異過大會停用自適應）：") + it }
+        }
+
         fun frequencyLine(label: String, key: String): String {
             val status = json.optString(key + "Status", "UNAVAILABLE")
             if (status != "AVAILABLE") {
@@ -320,6 +336,7 @@ class MainActivity : AppCompatActivity() {
         telemetryView.text = listOf(
             "GPU 即時監視（$freshness；更新 $updated）",
             loadLine(),
+            *sourceLines.toTypedArray(),
             frequencyLine("實際 GPU 時脈 cur_freq", "currentFrequencyKHz"),
             frequencyLine("最低頻率要求 min_freq", "minimumFrequencyKHz"),
             frequencyLine("硬體頻率上限 max_freq", "maximumFrequencyKHz"),
