@@ -131,7 +131,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\n\n" + cpuTelemetryMonitor.displayText() + "\n\n" + framePresentationMonitor.displayText()
+    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\n\n" + cpuTelemetryMonitor.displayText() + "\n\n" + "Android 熱狀態：${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；記憶體壓力：${GpuAdaptivePolicy.memoryLabel(memoryPressureSnapshot)}" + "\n\n" + framePresentationMonitor.displayText()
 
     override fun destroy() {
         synchronized(lock) {
