@@ -129,14 +129,38 @@ class GpuTelemetryTest {
             clockMs = { 1000L }
         ).sample()
 
-        val output = snapshot.toDisplayText(5000L, monitorRunning = true)
+        val output = snapshot.toDisplayText(2000L, monitorRunning = true)
 
-        assertTrue(output.contains("資料已過期"))
+        assertTrue(output.contains("資料新鮮"))
         assertTrue(output.contains("GPU 實際時脈 cur_freq：648.0 MHz"))
         assertTrue(output.contains("GPU 最低頻率設定 min_freq：750.0 MHz"))
         assertTrue(output.contains("GPU 最高頻率上限 max_freq：1300.0 MHz"))
         assertTrue(output.contains("負載來源：" + GpuSysfsPaths.LOAD_CANDIDATES[0]))
         assertFalse(output.contains("GPU 實際時脈 cur_freq：750.0 MHz"))
+    }
+
+
+    @Test
+    fun staleSnapshotDoesNotDisplayOldGpuLoadClockOrCuAsCurrent() {
+        val values = mapOf(
+            GpuSysfsPaths.CURRENT_UTILIZATION to "86",
+            GpuSysfsPaths.UTILIZATION_SOURCE to "jiffies",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "jiffies hw_counter",
+            GpuSysfsPaths.CURRENT_FREQ to "1300000",
+            GpuSysfsPaths.CURRENT_CU_UTILIZATION to "35"
+        )
+        val snapshot = GpuTelemetryCollector(
+            readText = { values[it] },
+            clockMs = { 1000L }
+        ).sample()
+
+        val output = snapshot.toDisplayText(5000L, monitorRunning = true)
+        assertTrue(output.contains("資料已過期"))
+        assertTrue(output.contains("GPU 驅動利用率（SGPU）：不可用"))
+        assertTrue(output.contains("GPU CU 利用率（輔助指標，非整體 GPU 使用率）：不可用"))
+        assertTrue(output.contains("GPU 實際時脈 cur_freq：資料已過期"))
+        assertTrue(output.contains("資料已過期或時間戳異常"))
+        assertNull(snapshot.gpuLoadPercent(5000L, GpuTelemetrySnapshot.STALE_AFTER_MS))
     }
 
     @Test
