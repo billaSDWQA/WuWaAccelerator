@@ -27,7 +27,8 @@ class GpuUserService : IAcceleratorService.Stub() {
         private const val CUR_NODE = "$NODE/cur_freq"
         private const val GOV_NODE = "$NODE/governor"
         private const val AVAILABLE_NODE = "$NODE/available_frequencies"
-        private const val POLL_MS = 2000L
+        // Faster control response: two consecutive load samples now require ~2 s, not ~4 s.
+        private const val POLL_MS = 1000L
         private const val THERMAL_SAMPLE_INTERVAL_MS = 5000L
         private const val THERMAL_TIMEOUT_MS = 2500L
         private const val DUMPSYS_TIMEOUT_MS = 3000L
