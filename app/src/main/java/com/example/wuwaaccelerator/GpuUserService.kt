@@ -80,7 +80,6 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
-            telemetryMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
         }
@@ -104,7 +103,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
-        telemetryMonitor.start()
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -219,6 +217,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
         val detection = detectionState.first
         val foregroundSampled = detectionState.second
+        if (detection.packageName == GAME) synchronized(lock) {
+            if (monitoring) telemetryMonitor.start()
+        }
 
         val requestThermal = synchronized(lock) {
             monitoring && detection.packageName == GAME && !thermalCheckInFlight &&
@@ -267,6 +268,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
+                telemetryMonitor.stop()
                         if (hasBackup() && restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
@@ -321,6 +323,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
+            telemetryMonitor.stop()
                 if (hasBackup()) {
                 if (restoreLocked()) {
                     boostActive = false
