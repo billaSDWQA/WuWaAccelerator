@@ -27,12 +27,12 @@ internal object GpuOverlayTextFormatter {
         val gpuLoad = value("GPU 驅動利用率（SGPU）：", gpuStale)
             .takeIf { it != "N/A" } ?: value("GPU 負載：", gpuStale)
         val gpuClockRaw = value("GPU 實際時脈 cur_freq：", gpuStale)
-        val gpuClock = Regex("""^([0-9.]+\\s*MHz)""").find(gpuClockRaw)?.groupValues?.get(1) ?: gpuClockRaw
+        val gpuClock = Regex("""^([0-9.]+\s*MHz)""").find(gpuClockRaw)?.groupValues?.get(1) ?: gpuClockRaw
         val gpuTemp = value("GPU 溫度：")
         val cpuLoad = value("CPU 整體使用率：", cpuStale)
         val cpuFrequencies = if (cpuStale) "N/A" else {
             lines.filter { it.startsWith("policy") && it.contains("[CPU ") }
-                .mapNotNull { Regex(""":\\s*([0-9.]+\\s*MHz)""").find(it)?.groupValues?.get(1) }
+                .mapNotNull { Regex(""":\s*([0-9.]+\s*MHz)""").find(it)?.groupValues?.get(1) }
                 .distinct()
                 .joinToString("/")
                 .ifBlank { "N/A" }
