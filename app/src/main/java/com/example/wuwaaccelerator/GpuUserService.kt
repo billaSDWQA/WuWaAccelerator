@@ -443,9 +443,11 @@ class GpuUserService : IAcceleratorService.Stub() {
      */
     private fun sampleGpuTelemetry(): GpuTelemetrySnapshot {
         val sampledAt = System.currentTimeMillis()
+        val loadSources = GpuTelemetryParser.readLoadSources(gpuLoadNodes, ::readNode)
         return GpuTelemetrySnapshot(
             sampledAtMs = sampledAt,
-            loadPercent = GpuTelemetryParser.firstReadableLoad(gpuLoadNodes, ::readNode),
+            loadPercent = GpuTelemetryParser.chooseLoad(loadSources),
+            loadSources = loadSources,
             currentFrequencyKHz = GpuTelemetryParser.parseFrequencyKHz(
                 CUR_NODE, readNode(CUR_NODE), allowZero = true
             ),
