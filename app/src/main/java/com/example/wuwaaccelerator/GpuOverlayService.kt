@@ -37,6 +37,7 @@ class GpuOverlayService : Service() {
 
     companion object {
         const val EXTRA_REMOTE_BINDER = "com.example.wuwaaccelerator.extra.REMOTE_BINDER"
+        const val EXTRA_REMOTE_BUNDLE = "com.example.wuwaaccelerator.extra.REMOTE_BUNDLE"
         private const val ACTION_STOP = "com.example.wuwaaccelerator.action.STOP_GPU_HUD"
         private const val CHANNEL_ID = "gpu_hud"
         private const val NOTIFICATION_ID = 9031
@@ -73,7 +74,7 @@ class GpuOverlayService : Service() {
 
         startAsForeground()
 
-        val binder = intent?.getBinderExtra(EXTRA_REMOTE_BINDER)
+        val binder = intent?.getBundleExtra(EXTRA_REMOTE_BUNDLE)?.getBinder(EXTRA_REMOTE_BINDER)
         if (binder != null) {
             remote = IAcceleratorService.Stub.asInterface(binder)
         }
