@@ -52,6 +52,14 @@ class GpuOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var remote: IAcceleratorService? = null
+    private var remoteBinder: IBinder? = null
+    private val remoteDeathRecipient = IBinder.DeathRecipient {
+        mainHandler.post {
+            latestSnapshotText = "Shizuku GPU 服務已中斷；HUD 已停止"
+            renderLatestSnapshot()
+            stopSelf()
+        }
+    }
     private var pollFuture: ScheduledFuture<*>? = null
     private var overlayRoot: LinearLayout? = null
     private var headerView: LinearLayout? = null
@@ -75,8 +83,18 @@ class GpuOverlayService : Service() {
         startAsForeground()
 
         val binder = intent?.getBundleExtra(EXTRA_REMOTE_BUNDLE)?.getBinder(EXTRA_REMOTE_BINDER)
-        if (binder != null) {
-            remote = IAcceleratorService.Stub.asInterface(binder)
+        if (binder != null && remoteBinder !== binder) {
+            remoteBinder?.let { oldBinder ->
+                runCatching { oldBinder.unlinkToDeath(remoteDeathRecipient, 0) }
+            }
+            try {
+                binder.linkToDeath(remoteDeathRecipient, 0)
+                remoteBinder = binder
+                remote = IAcceleratorService.Stub.asInterface(binder)
+            } catch (_: Exception) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
 
         if (remote == null) {
@@ -103,6 +121,10 @@ class GpuOverlayService : Service() {
             runCatching { windowManager.removeView(view) }
         }
         overlayRoot = null
+        remoteBinder?.let { binder ->
+            runCatching { binder.unlinkToDeath(remoteDeathRecipient, 0) }
+        }
+        remoteBinder = null
         remote = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
@@ -269,10 +291,13 @@ class GpuOverlayService : Service() {
                     }
                     if (dragged) {
                         overlayParams?.let { params ->
-                            params.x = (initialX + dx).coerceAtLeast(0)
-                            params.y = (initialY + dy).coerceAtLeast(0)
-                            runCatching {
-                                overlayRoot?.let { windowManager.updateViewLayout(it, params) }
+                            overlayRoot?.let { root ->
+                                val display = resources.displayMetrics
+                                val maxX = (display.widthPixels - root.width).coerceAtLeast(0)
+                                val maxY = (display.heightPixels - root.height).coerceAtLeast(0)
+                                params.x = (initialX + dx).coerceIn(0, maxX)
+                                params.y = (initialY + dy).coerceIn(0, maxY)
+                                runCatching { windowManager.updateViewLayout(root, params) }
                             }
                         }
                     }
