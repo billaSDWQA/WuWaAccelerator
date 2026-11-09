@@ -1,13 +1,15 @@
-name: Android CI
+name: Android CI 1.0.x
 
 on:
   # Feature branches are built by pull_request to avoid duplicate push + PR runs.
   push:
     branches:
       - main
+      - feature/1.0.0-full-accelerator
   pull_request:
     branches:
       - main
+      - feature/0.9.0-sgpu-utilization
   workflow_dispatch:
 
 permissions:
@@ -47,7 +49,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: WuWaAccelerator-debug
+          name: WuWaAccelerator-1.0.1-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
