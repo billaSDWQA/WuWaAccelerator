@@ -62,7 +62,8 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("Shizuku 服務已中斷；若先前套用 GPU 設定，備份仍保留，重新啟動 Shizuku 後會先嘗試還原")
+            stopGpuOverlay()
+            showStatus("Shizuku 服務已中斷；懸浮 HUD 已關閉。若先前套用 GPU 設定，備份仍保留，重新啟動 Shizuku 後會先嘗試還原")
         }
     }
 
@@ -97,7 +98,8 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("GPU 控制服務已中斷；若先前套用 GPU 設定，重新連線後會先嘗試還原")
+            stopGpuOverlay()
+            showStatus("GPU 控制服務已中斷；懸浮 HUD 已關閉。若先前套用 GPU 設定，重新連線後會先嘗試還原")
         }
     }
 
