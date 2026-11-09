@@ -6,10 +6,10 @@ import org.junit.Test
 
 class CpuTelemetryParserTest {
     @Test
-    fun parsesPerCoreProcStatAndIgnoresAggregate() {
+    fun parsesPerCoreProcStatAndIgnoresAggregateAndGuestDoubleCount() {
         val parsed = CpuTelemetryParser.parseProcStat(
             "cpu 100 0 20 300 5 0 0 0\n" +
-                "cpu0 40 0 10 100 2 0 0 0\n" +
+                "cpu0 40 0 10 100 2 0 0 0 50 5\n" +
                 "cpu1 60 0 10 200 3 0 0 0\n"
         )
         assertEquals(setOf(0, 1), parsed.keys)
@@ -29,7 +29,6 @@ class CpuTelemetryParserTest {
 
     @Test
     fun calculatesDeltaBasedLoadWithoutAssumingCoreTopology() {
-        var now = 1000L
         val samples = ArrayDeque(
             listOf(
                 "cpu 100 0 20 300 5 0 0 0\ncpu2 40 0 10 100 2 0 0 0",
@@ -45,10 +44,11 @@ class CpuTelemetryParserTest {
                 }
             },
             listPolicyDirectories = { emptyList() },
-            clockMs = { now++ }
+            clockMs = { 1000L }
         )
         assertEquals(null, collector.sample().overallUtilizationPercent)
-        assertEquals(66, collector.sample().overallUtilizationPercent)
-        assertEquals(66, collector.sample().coreLoads.single().utilizationPercent)
+        val result = collector.sample()
+        assertEquals(69, result.overallUtilizationPercent)
+        assertEquals(69, result.coreLoads.single().utilizationPercent)
     }
 }
