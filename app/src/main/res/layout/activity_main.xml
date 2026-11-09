@@ -3,90 +3,43 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:gravity="center_horizontal"
+    android:padding="24dp">
 
     <TextView
         android:id="@+id/tv_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="24dp"
         android:gravity="center"
-        android:text="鳴潮 GPU 自動加速器"
-        android:textSize="22sp"
+        android:text="WuWa Accelerator 1.0"
+        android:textSize="23sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/tv_status"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:gravity="center"
-        android:minHeight="42dp"
-        android:text="等待 Shizuku 連線"
-        android:textSize="14sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="GPU／CPU／遊戲呈現即時遙測（唯讀）"
-        android:textSize="15sp"
-        android:textStyle="bold" />
-
-    <ScrollView
-        android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="10dp"
         android:layout_weight="1"
-        android:fillViewport="true">
-
-        <TextView
-            android:id="@+id/tv_telemetry"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:padding="8dp"
-            android:text="等待 GPU 遙測資料"
-            android:textSize="12sp" />
-    </ScrollView>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btn_overlay"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
-            android:layout_weight="1"
-            android:text="啟動遊戲內 GPU HUD"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/btn_overlay_stop"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="4dp"
-            android:layout_weight="1"
-            android:text="關閉 HUD"
-            android:textSize="13sp" />
-    </LinearLayout>
+        android:gravity="center"
+        android:minHeight="80dp"
+        android:padding="16dp"
+        android:text="等待 Shizuku 連線"
+        android:textSize="15sp" />
 
     <Button
         android:id="@+id/btn_start"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_marginBottom="8dp"
-        android:text="啟動自動偵測"
+        android:layout_height="56dp"
+        android:layout_marginBottom="12dp"
+        android:text="啟動順滑加速"
         android:textSize="16sp" />
 
     <Button
         android:id="@+id/btn_stop"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="56dp"
         android:text="停止並還原 GPU 設定"
         android:textSize="16sp" />
 
