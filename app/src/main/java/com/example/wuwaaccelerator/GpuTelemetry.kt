@@ -83,7 +83,7 @@ internal data class GpuTelemetrySnapshot(
         val supported = availableUtilizationSources
             ?.takeIf { it.error == null }
             ?.normalizedValue
-            ?.split(Regex("\\\\s+"))
+            ?.split(Regex("\\s+"))
             ?.toSet()
             ?: return false
         return "jiffies" in supported
