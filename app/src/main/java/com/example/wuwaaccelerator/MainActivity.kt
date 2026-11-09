@@ -1,6 +1,7 @@
 package com.example.wuwaaccelerator
 
 import android.content.ComponentName
+import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
