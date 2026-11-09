@@ -134,11 +134,19 @@ FPS 尚未接入。未確認鳴潮正確 layer 之前，不以螢幕刷新率、
 
 - 新增主要負載節點：`/sys/class/devfreq/10e00000.sgpu/interface/current_utilization`。此節點在 Galaxy A55 SM-A5560 上已透過 ADB 實測可讀，遊戲運作樣本為 62–86%，手機主畫面閒置樣本為 0%。這些是有限次手動取樣，不是完整效能基準測試。
 - 同步讀取 `interface/utilization_source` 與 `interface/available_utilization_sources`。目前裝置回報的模式為 `jiffies`；程式只在模式確認為 `jiffies` 時，才把 `current_utilization` 傳給自適應控制器。若模式缺失或不同，資料顯示為不可用，不猜測其語義，也不自動切換驅動模式。
+- 為避免把其他驅動的格式誤認成百分比，`current_utilization` 僅接受純整數 0–100；自動調頻還要求目前模式為 `jiffies`，且可用來源清單確實包含 `jiffies`。時間戳倒退、資料過期或模式未驗證時一律不提供給控制器。
+- 額外唯讀顯示 `current_cu_utilization` 作為 CU 輔助指標，明確標示它不是整體 GPU 使用率；目前 A55 所見 0% 不會覆蓋 SGPU 整體利用率。
 - 新節點優先於原有四個候選負載來源；原有來源仍保留交叉檢查。若多個有效來源差異超過 15 個百分點，該次樣本仍會拒絕交給自適應升頻。
 - `current_cu_utilization` 不作為整體 GPU 使用率，因為目前 A55 實測為 0，且不能代表整顆 GPU 的工作負載。
 - `cur_freq=0` 會顯示為「閒置或驅動未回報」，不再呈現成 0 MHz 的有效運作時脈；負載 0% 仍是有效讀值。
 - UI 與自適應控制器仍共用同一份每秒遙測快照，沒有新增第二套 GPU 取樣器，也不寫入 utilization source 設定。
 - 將 Shizuku UserService 版本標記由 7 升至 8，避免舊 daemon 繼續使用更新前的遙測類別。
+
+### 0.9.0 專用 CI
+
+- 分支專用工作流程：`.github/workflows/android-ci-0.9.yml`。
+- 推送至 `feature/0.9.0-sgpu-utilization` 時執行單元測試、Android Lint、Debug/Release APK 建置，並上傳 Debug APK artifact。
+- CI 綠燈僅代表這些自動化檢查通過；不代表已在 Galaxy A55 上完成 Shizuku 讀取驗證或遊戲效能驗收。
 
 ### 0.9.0 尚未完成的項目
 
