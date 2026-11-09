@@ -76,7 +76,7 @@ internal data class GpuTelemetrySnapshot(
     fun compactSummary(): String {
         if (capturedAtElapsedMs <= 0L) return "SGPU 遙測尚未完成"
         val min = formatFrequency(minFrequency)
-        val current = formatFrequency(currentFrequency)
+        val current = formatCurrentFrequency(currentFrequency)
         val max = formatFrequency(maxFrequency)
         return "SGPU min_freq=$min, cur_freq=$current, max_freq=$max"
     }
