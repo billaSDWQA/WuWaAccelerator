@@ -196,8 +196,9 @@ internal class GpuTelemetryCollector(
                 GpuAdaptivePolicy.parseGpuLoadPercent(raw)?.toString()
             }
         }
-        val valid = readings.filter {
-            it.error == null && it.normalizedValue?.toIntOrNull() in 0..100
+        val valid = readings.filter { metric ->
+            val value = metric.normalizedValue?.toIntOrNull()
+            metric.error == null && value != null && value in 0..100
         }
         if (valid.isEmpty()) {
             val firstUnparsed = readings.firstOrNull { it.rawValue != null }
