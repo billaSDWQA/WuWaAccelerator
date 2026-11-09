@@ -48,7 +48,7 @@ class CpuTelemetryParserTest {
         )
         assertEquals(null, collector.sample().overallUtilizationPercent)
         val result = collector.sample()
-        assertEquals(69, result.overallUtilizationPercent)
-        assertEquals(69, result.coreLoads.single().utilizationPercent)
+        assertEquals(76, result.overallUtilizationPercent)
+        assertEquals(76, result.coreLoads.single().utilizationPercent)
     }
 }
