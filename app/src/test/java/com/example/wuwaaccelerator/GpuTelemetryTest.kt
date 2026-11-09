@@ -80,7 +80,7 @@ class GpuTelemetryTest {
 
         assertNull(snapshot.gpuLoadPercent(3500L, 3000L))
         assertTrue(snapshot.gpuLoad?.error?.contains("差異") == true)
-        assertEquals(4, snapshot.loadSourceReadings.size)
+        assertEquals(5, snapshot.loadSourceReadings.size)
     }
 
     @Test
