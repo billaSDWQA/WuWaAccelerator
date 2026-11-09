@@ -2,6 +2,7 @@ package com.example.wuwaaccelerator
 
 import android.os.Build
 import android.os.Process
+import android.os.SystemClock
 import android.system.Os
 import androidx.annotation.Keep
 import java.io.File
@@ -37,17 +38,12 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val lock = Any()
     private val scheduler: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
+    private val telemetryMonitor = GpuTelemetryMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v1")
     private val foregroundDump = File(directory, "foreground.txt")
     private val thermalDump = File(directory, "thermal.txt")
     private val minFile = File(MIN_NODE)
-    private val gpuLoadNodes = listOf(
-        "$NODE/load",
-        "$NODE/gpu_load",
-        "$NODE/gpu_busy_percent",
-        "/sys/class/drm/card0/device/gpu_busy_percent"
-    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
@@ -64,6 +60,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
+            telemetryMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
         }
@@ -87,6 +84,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
+        telemetryMonitor.start()
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -102,6 +100,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         monitoring = false
         val restored = restoreLocked()
         if (restored) {
+            telemetryMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
@@ -116,12 +115,15 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
+    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText()
+
     override fun destroy() {
         synchronized(lock) {
             monitoring = false
             future?.cancel(false)
             future = null
             restoreLocked()
+            telemetryMonitor.shutdown()
             scheduler.shutdownNow()
         }
         System.exit(0)
@@ -133,6 +135,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             synchronized(lock) {
                 if (monitoring) pollLocked()
                 else if (backup.exists() && restoreLocked()) {
+                    telemetryMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
@@ -326,14 +329,11 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
     }
 
-    private fun readGpuLoadPercent(): Int? {
-        for (path in gpuLoadNodes) {
-            val raw = readNode(path) ?: continue
-            val parsed = GpuAdaptivePolicy.parseGpuLoadPercent(raw)
-            if (parsed != null) return parsed
-        }
-        return null
-    }
+    private fun readGpuLoadPercent(): Int? =
+        telemetryMonitor.snapshot().gpuLoadPercent(
+            SystemClock.elapsedRealtime(),
+            GpuTelemetrySnapshot.STALE_AFTER_MS
+        )
 
     private fun readMemoryPressure(): MemoryPressure {
         return try {
@@ -506,15 +506,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         return true
     }
 
-    private fun gpuSummary(): String {
-        val values = listOfNotNull(
-            readNode(MIN_NODE)?.let { "min_freq=$it" },
-            readNode(CUR_NODE)?.let { "cur_freq=$it" },
-            readNode(MAX_NODE)?.let { "max_freq=$it" },
-            readNode(GOV_NODE)?.let { "governor=$it" }
-        )
-        return if (values.isEmpty()) "SGPU 節點讀取不到" else "SGPU ${values.joinToString(", ")}"
-    }
+    private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
 
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256")
