@@ -1,43 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="28dp">
+    android:fillViewport="true">
 
-    <TextView
-        android:id="@+id/tv_title"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:text="鳴潮 GPU 自動加速器"
-        android:textSize="24sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/tv_status"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="28dp"
-        android:gravity="center"
-        android:minHeight="64dp"
-        android:text="等待 Shizuku 連線"
-        android:textSize="15sp" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="22dp">
 
-    <Button
-        android:id="@+id/btn_start"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:layout_marginBottom="14dp"
-        android:text="啟動自動偵測"
-        android:textSize="17sp" />
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:gravity="center"
+            android:text="鳴潮 GPU 自動加速器 0.8.0"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btn_stop"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:text="停止並還原 GPU 設定"
-        android:textSize="17sp" />
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp"
+            android:gravity="center"
+            android:minHeight="56dp"
+            android:text="等待 Shizuku 連線"
+            android:textSize="14sp" />
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/tv_gpu_telemetry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:background="#18252E"
+            android:fontFamily="monospace"
+            android:padding="14dp"
+            android:text="GPU 即時監視：等待獨立監測線程第一次取樣"
+            android:textIsSelectable="true"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_start"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginBottom="12dp"
+            android:text="啟動自動偵測"
+            android:textSize="17sp" />
+
+        <Button
+            android:id="@+id/btn_stop"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:text="停止並還原 GPU 設定"
+            android:textSize="17sp" />
+
+    </LinearLayout>
+</ScrollView>
