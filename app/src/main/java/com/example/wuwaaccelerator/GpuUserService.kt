@@ -42,6 +42,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
     private val cpuTelemetryMonitor = CpuTelemetryMonitor()
+    private val framePresentationMonitor = SurfaceFlingerFrameMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -109,6 +110,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
+        framePresentationMonitor.stop()
         val restored = restoreLocked()
         if (restored) {
             telemetryMonitor.stop()
@@ -137,6 +139,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             restoreLocked()
             telemetryMonitor.shutdown()
             cpuTelemetryMonitor.shutdown()
+            framePresentationMonitor.shutdown()
             scheduler.shutdownNow()
         }
         System.exit(0)
@@ -171,6 +174,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         // Potentially slow dumpsys calls execute outside the controller lock.
         val detection = readForeground()
+        if (shouldMonitor && detection.packageName == GAME) framePresentationMonitor.start()
         val shouldSampleThermal = synchronized(lock) {
             monitoring &&
                 detection.packageName == GAME &&
@@ -207,6 +211,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                     boostActive = false
                     adaptiveHysteresis.reset()
                     exitSamples = 0
+                    framePresentationMonitor.stop()
                     status = "前景連續辨識失敗，已安全還原：${detection.error}"
                 } else {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
@@ -256,18 +261,22 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        if (hasBackup()) {
-            exitSamples++
-            if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
-                boostActive = false
+        exitSamples++
+        if (exitSamples >= EXIT_LIMIT) {
+            framePresentationMonitor.stop()
+            if (hasBackup()) {
+                if (restoreLocked()) {
+                    boostActive = false
+                    adaptiveHysteresis.reset()
+                    status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
+                } else {
+                    status = "鳴潮已離開前景，但 GPU 還原失敗；保留備份並重試：$status"
+                }
+            } else {
                 adaptiveHysteresis.reset()
-                exitSamples = 0
-                status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
+                status = "鳴潮已離開前景；GPU 維持原始設定。"
             }
-        } else {
             exitSamples = 0
-            adaptiveHysteresis.reset()
-            status = "自動偵測中；目前前景：$foreground"
         }
     }
 
