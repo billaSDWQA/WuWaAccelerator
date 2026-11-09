@@ -53,13 +53,7 @@ class GpuOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var remote: IAcceleratorService? = null
     private var remoteBinder: IBinder? = null
-    private val remoteDeathRecipient = IBinder.DeathRecipient {
-        mainHandler.post {
-            latestSnapshotText = "Shizuku GPU 服務已中斷；HUD 已停止"
-            renderLatestSnapshot()
-            stopSelf()
-        }
-    }
+    private var remoteDeathRecipient: IBinder.DeathRecipient? = null
     private var pollFuture: ScheduledFuture<*>? = null
     private var overlayRoot: LinearLayout? = null
     private var headerView: LinearLayout? = null
@@ -84,12 +78,30 @@ class GpuOverlayService : Service() {
 
         val binder = intent?.getBundleExtra(EXTRA_REMOTE_BUNDLE)?.getBinder(EXTRA_REMOTE_BINDER)
         if (binder != null && remoteBinder !== binder) {
-            remoteBinder?.let { oldBinder ->
-                runCatching { oldBinder.unlinkToDeath(remoteDeathRecipient, 0) }
+            val oldBinder = remoteBinder
+            val oldRecipient = remoteDeathRecipient
+            if (oldBinder != null && oldRecipient != null) {
+                runCatching { oldBinder.unlinkToDeath(oldRecipient, 0) }
+            }
+            remoteBinder = null
+            remoteDeathRecipient = null
+            remote = null
+
+            val newRecipient = IBinder.DeathRecipient {
+                mainHandler.post {
+                    // Ignore a late death callback from a superseded Binder if a
+                    // fresh Shizuku UserService has already reconnected.
+                    if (remoteBinder === binder) {
+                        latestSnapshotText = "Shizuku GPU 服務已中斷；HUD 已停止"
+                        renderLatestSnapshot()
+                        stopSelf()
+                    }
+                }
             }
             try {
-                binder.linkToDeath(remoteDeathRecipient, 0)
+                binder.linkToDeath(newRecipient, 0)
                 remoteBinder = binder
+                remoteDeathRecipient = newRecipient
                 remote = IAcceleratorService.Stub.asInterface(binder)
             } catch (_: Exception) {
                 stopSelf()
@@ -121,9 +133,12 @@ class GpuOverlayService : Service() {
             runCatching { windowManager.removeView(view) }
         }
         overlayRoot = null
-        remoteBinder?.let { binder ->
-            runCatching { binder.unlinkToDeath(remoteDeathRecipient, 0) }
+        val binder = remoteBinder
+        val recipient = remoteDeathRecipient
+        if (binder != null && recipient != null) {
+            runCatching { binder.unlinkToDeath(recipient, 0) }
         }
+        remoteDeathRecipient = null
         remoteBinder = null
         remote = null
         stopForeground(STOP_FOREGROUND_REMOVE)
