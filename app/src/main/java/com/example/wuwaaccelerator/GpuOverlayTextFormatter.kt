@@ -12,8 +12,18 @@ internal object GpuOverlayTextFormatter {
             it.startsWith("GPU 實際時脈 cur_freq：")
         }?.substringAfter("：")
 
-        val loadValue = load?.takeIf { it.isNotBlank() } ?: "N/A"
-        val clockValue = clock?.takeIf { it.isNotBlank() } ?: "N/A"
+        fun displayValue(value: String?): String {
+            val normalized = value?.trim()
+            return normalized?.takeIf {
+                it.isNotEmpty() &&
+                    !it.equals("不可用", ignoreCase = true) &&
+                    !it.equals("unavailable", ignoreCase = true) &&
+                    !it.equals("n/a", ignoreCase = true)
+            } ?: "N/A"
+        }
+
+        val loadValue = displayValue(load)
+        val clockValue = displayValue(clock)
         return "GPU $loadValue  |  $clockValue"
     }
 }
