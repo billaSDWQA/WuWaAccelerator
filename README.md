@@ -2,7 +2,7 @@
 
 這是一個針對 **Samsung Galaxy A55 5G（SM-A5560／Exynos 1480／Xclipse 530）** 的 Shizuku 工具。它只嘗試調整一個 GPU devfreq 節點，不修改 CPU、記憶體、網路、螢幕刷新率或遊戲檔案。
 
-> **目前版本：0.8.0 測試版。** 本版重整了 Shizuku 執行身分、前景辨識、GPU 寫入診斷和還原流程。CI 通過只代表程式可編譯與單元測試通過；A55 實機寫入和遊戲幀率仍須另外驗證。
+> **目前版本：0.9.0 測試版。** 本版將 Galaxy A55 已實測的 SGPU `current_utilization` 讀值接入共用 GPU 遙測快照，並以 `utilization_source=jiffies` 作為自動調頻的必要條件。CI 通過只代表程式可編譯與單元測試通過；Shizuku 實機讀取、懸浮 HUD、頻率控制效果與遊戲幀率仍須另外驗證。
 
 ## 功能範圍
 
@@ -127,4 +127,22 @@ Debug APK 輸出位置：
 前景偵測與 thermalservice 的 dumpsys 命令已移出 GPU 控制鎖；若 shell 命令正在等待逾時，手動停止與還原仍可取得控制鎖。GPU sysfs 讀寫和少量 /proc/meminfo 讀取仍在控制流程中，不能保證核心節點 I/O 一定有固定返回時間。
 
 FPS 尚未接入。未確認鳴潮正確 layer 之前，不以螢幕刷新率、App 自身 Choreographer 或 GPU 負載估算遊戲 FPS。
+
+
+
+## 0.9.0 A55 SGPU 負載來源整合
+
+- 新增主要負載節點：`/sys/class/devfreq/10e00000.sgpu/interface/current_utilization`。此節點在 Galaxy A55 SM-A5560 上已透過 ADB 實測可讀，遊戲運作樣本為 62–86%，手機主畫面閒置樣本為 0%。這些是有限次手動取樣，不是完整效能基準測試。
+- 同步讀取 `interface/utilization_source` 與 `interface/available_utilization_sources`。目前裝置回報的模式為 `jiffies`；程式只在模式確認為 `jiffies` 時，才把 `current_utilization` 傳給自適應控制器。若模式缺失或不同，資料顯示為不可用，不猜測其語義，也不自動切換驅動模式。
+- 新節點優先於原有四個候選負載來源；原有來源仍保留交叉檢查。若多個有效來源差異超過 15 個百分點，該次樣本仍會拒絕交給自適應升頻。
+- `current_cu_utilization` 不作為整體 GPU 使用率，因為目前 A55 實測為 0，且不能代表整顆 GPU 的工作負載。
+- `cur_freq=0` 會顯示為「閒置或驅動未回報」，不再呈現成 0 MHz 的有效運作時脈；負載 0% 仍是有效讀值。
+- UI 與自適應控制器仍共用同一份每秒遙測快照，沒有新增第二套 GPU 取樣器，也不寫入 utilization source 設定。
+
+### 0.9.0 尚未完成的項目
+
+- Shizuku UserService 在 SM-A5560 上讀取新節點，並與 ADB 同時讀值比對。
+- 遊戲內懸浮 HUD（需另行加入 overlay 權限、前景服務及生命週期管理；本次核心遙測提交不會假裝已完成）。
+- 較短取樣週期與短暫掉幀尖峰的關聯測試。
+- 實際 FPS、長時間溫度、穩定性和 60 FPS 驗證。
 
