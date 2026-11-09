@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: wuwa-accelerator-0.9.0-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   verify:
     name: Unit tests, lint and APK builds
