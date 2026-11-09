@@ -46,6 +46,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val systemQueryExecutor = Executors.newFixedThreadPool(2) { Thread(it, "WuWa-System-Query").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
+    private val cpuTelemetryMonitor = CpuTelemetryMonitor()
+    private val gpuTemperatureMonitor = GpuTemperatureMonitor()
+    private val frameMonitor = SurfaceFlingerFrameMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -123,9 +126,9 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
+        stopGameTelemetry()
         val restored = restoreLocked()
         if (restored) {
-            telemetryMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
@@ -140,7 +143,12 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText()
+    override fun getTelemetrySnapshot(): String = listOf(
+        telemetryMonitor.displayText(),
+        cpuTelemetryMonitor.displayText(),
+        gpuTemperatureMonitor.displayText(),
+        frameMonitor.displayText()
+    ).joinToString("\n")
 
     override fun destroy() {
         synchronized(lock) {
@@ -148,7 +156,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             future?.cancel(false)
             future = null
             restoreLocked()
-            telemetryMonitor.shutdown()
+            shutdownGameTelemetry()
             scheduler.shutdownNow()
             systemQueryExecutor.shutdownNow()
         }
@@ -172,7 +180,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!shouldMonitor) {
                 synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
-                    telemetryMonitor.stop()
+                    stopGameTelemetry()
                             status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
@@ -218,7 +226,12 @@ class GpuUserService : IAcceleratorService.Stub() {
         val detection = detectionState.first
         val foregroundSampled = detectionState.second
         if (detection.packageName == GAME) synchronized(lock) {
-            if (monitoring) telemetryMonitor.start()
+            if (monitoring) {
+                telemetryMonitor.start()
+                cpuTelemetryMonitor.start()
+                gpuTemperatureMonitor.start()
+                frameMonitor.start()
+            }
         }
 
         val requestThermal = synchronized(lock) {
@@ -248,7 +261,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             // If stop was requested during shell I/O, never re-apply a boost.
             if (!monitoring) {
                         if (hasBackup() && restoreLocked()) {
-                    telemetryMonitor.stop()
+                    stopGameTelemetry()
                             status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
@@ -268,7 +281,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
-                telemetryMonitor.stop()
+                stopGameTelemetry()
                         if (hasBackup() && restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
@@ -323,7 +336,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
-            telemetryMonitor.stop()
+            stopGameTelemetry()
                 if (hasBackup()) {
                 if (restoreLocked()) {
                     boostActive = false
@@ -730,6 +743,20 @@ class GpuUserService : IAcceleratorService.Stub() {
     }
 
     private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
+
+    private fun stopGameTelemetry() {
+        telemetryMonitor.stop()
+        cpuTelemetryMonitor.stop()
+        gpuTemperatureMonitor.stop()
+        frameMonitor.stop()
+    }
+
+    private fun shutdownGameTelemetry() {
+        telemetryMonitor.shutdown()
+        cpuTelemetryMonitor.shutdown()
+        gpuTemperatureMonitor.shutdown()
+        frameMonitor.shutdown()
+    }
 
     private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
 

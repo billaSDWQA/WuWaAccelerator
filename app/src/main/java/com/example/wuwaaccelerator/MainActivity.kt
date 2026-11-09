@@ -4,8 +4,10 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -99,6 +101,7 @@ class MainActivity : AppCompatActivity() {
 
         statusView = findViewById(R.id.tv_status)
         findViewById<Button>(R.id.btn_start).setOnClickListener { connectAndStart() }
+        findViewById<Button>(R.id.btn_hud).setOnClickListener { startGpuOverlay() }
         findViewById<Button>(R.id.btn_stop).setOnClickListener { stopAndRestore() }
 
         Shizuku.addRequestPermissionResultListener(permissionResultListener)
@@ -220,6 +223,28 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun startGpuOverlay() {
+        val remote = acceleratorService
+        if (!serviceBound || remote == null || !remote.asBinder().isBinderAlive) {
+            showStatus("請先啟動順滑加速並確認 Shizuku 服務已連線")
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            showStatus("請授予懸浮視窗權限，返回後再次按「啟動懸浮 HUD」")
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        val binderBundle = Bundle().apply {
+            putBinder(GpuOverlayService.EXTRA_REMOTE_BINDER, remote.asBinder())
+        }
+        val intent = Intent(this, GpuOverlayService::class.java).apply {
+            putExtra(GpuOverlayService.EXTRA_REMOTE_BUNDLE, binderBundle)
+        }
+        runCatching { startForegroundService(intent) }
+            .onSuccess { showStatus("懸浮 HUD 已啟動；CPU／GPU／呈現統計只在鳴潮前景時取樣") }
+            .onFailure { showStatus("無法啟動懸浮 HUD：${it.message}") }
     }
 
     private fun stopGpuOverlay() {

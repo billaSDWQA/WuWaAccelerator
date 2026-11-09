@@ -9,7 +9,6 @@ on:
   pull_request:
     branches:
       - main
-      - feature/0.9.0-sgpu-utilization
   workflow_dispatch:
 
 permissions:
