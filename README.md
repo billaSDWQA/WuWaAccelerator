@@ -138,6 +138,7 @@ FPS 尚未接入。未確認鳴潮正確 layer 之前，不以螢幕刷新率、
 - `current_cu_utilization` 不作為整體 GPU 使用率，因為目前 A55 實測為 0，且不能代表整顆 GPU 的工作負載。
 - `cur_freq=0` 會顯示為「閒置或驅動未回報」，不再呈現成 0 MHz 的有效運作時脈；負載 0% 仍是有效讀值。
 - UI 與自適應控制器仍共用同一份每秒遙測快照，沒有新增第二套 GPU 取樣器，也不寫入 utilization source 設定。
+- 將 Shizuku UserService 版本標記由 7 升至 8，避免舊 daemon 繼續使用更新前的遙測類別。
 
 ### 0.9.0 尚未完成的項目
 
