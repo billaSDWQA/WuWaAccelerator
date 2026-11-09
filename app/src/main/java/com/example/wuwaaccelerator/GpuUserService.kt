@@ -45,9 +45,6 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val scheduler: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
-    private val cpuTelemetryMonitor = CpuTelemetryMonitor()
-    private val framePresentationMonitor = SurfaceFlingerFrameMonitor()
-    private val gpuTemperatureMonitor = GpuTemperatureMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -79,8 +76,6 @@ class GpuUserService : IAcceleratorService.Stub() {
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
             telemetryMonitor.start()
-            cpuTelemetryMonitor.start()
-            gpuTemperatureMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
         }
@@ -105,8 +100,6 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         monitoring = true
         telemetryMonitor.start()
-        cpuTelemetryMonitor.start()
-        gpuTemperatureMonitor.start()
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -123,12 +116,9 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
-        framePresentationMonitor.stop()
         val restored = restoreLocked()
         if (restored) {
             telemetryMonitor.stop()
-            cpuTelemetryMonitor.stop()
-            gpuTemperatureMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
@@ -143,7 +133,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = listOf(telemetryMonitor.displayText(), cpuTelemetryMonitor.displayText(), gpuTemperatureMonitor.displayText(), "Android 熱狀態：${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；記憶體壓力：${GpuAdaptivePolicy.memoryLabel(memoryPressureSnapshot)}", framePresentationMonitor.displayText()).joinToString("\n\n")
+    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText()
 
     override fun destroy() {
         synchronized(lock) {
@@ -152,9 +142,6 @@ class GpuUserService : IAcceleratorService.Stub() {
             future = null
             restoreLocked()
             telemetryMonitor.shutdown()
-            cpuTelemetryMonitor.shutdown()
-            gpuTemperatureMonitor.shutdown()
-            framePresentationMonitor.shutdown()
             scheduler.shutdownNow()
         }
         System.exit(0)
@@ -175,13 +162,10 @@ class GpuUserService : IAcceleratorService.Stub() {
     private fun pollOnce() {
         val shouldMonitor = synchronized(lock) { monitoring }
         if (!shouldMonitor) {
-            framePresentationMonitor.stop()
-            synchronized(lock) {
+                synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
-                    cpuTelemetryMonitor.stop()
-            gpuTemperatureMonitor.stop()
-                    status = "GPU 原始值已確認還原。${gpuSummary()}"
+                            status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
                 }
@@ -210,7 +194,6 @@ class GpuUserService : IAcceleratorService.Stub() {
             synchronized(lock) { cachedForegroundResult }
         }
         synchronized(lock) {
-            if (monitoring && detection.packageName == GAME) framePresentationMonitor.start()
         }
         val shouldSampleThermal = synchronized(lock) {
             monitoring &&
@@ -222,12 +205,9 @@ class GpuUserService : IAcceleratorService.Stub() {
         synchronized(lock) {
             // If stop was requested during shell I/O, never re-apply a boost.
             if (!monitoring) {
-                framePresentationMonitor.stop()
-                if (hasBackup() && restoreLocked()) {
+                        if (hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
-                    cpuTelemetryMonitor.stop()
-            gpuTemperatureMonitor.stop()
-                    status = "GPU 原始值已確認還原。${gpuSummary()}"
+                            status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
                 }
@@ -248,8 +228,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
-                framePresentationMonitor.stop()
-                if (hasBackup() && restoreLocked()) {
+                        if (hasBackup() && restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
                     exitSamples = 0
@@ -308,8 +287,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
-            framePresentationMonitor.stop()
-            if (hasBackup()) {
+                if (hasBackup()) {
                 if (restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
