@@ -181,18 +181,23 @@ class MainActivity : AppCompatActivity() {
 
         val currentService = acceleratorService
         if (serviceBound && currentService != null) {
-            thread(name = "WuWa-Service-Start") {
-                val started = runCatching { currentService.startMonitoring() }.getOrDefault(false)
-                val currentStatus = runCatching { currentService.getStatus() }
-                    .getOrElse { "服務錯誤：${it.message}" }
-                runOnUiThread {
-                    showStatus(
-                        if (started) currentStatus
-                        else "自動偵測未能啟動：$currentStatus"
-                    )
+            if (currentService.asBinder().isBinderAlive) {
+                thread(name = "WuWa-Service-Start") {
+                    val started = runCatching { currentService.startMonitoring() }.getOrDefault(false)
+                    val currentStatus = runCatching { currentService.getStatus() }
+                        .getOrElse { "服務錯誤：${it.message}" }
+                    runOnUiThread {
+                        showStatus(
+                            if (started) currentStatus
+                            else "自動偵測未能啟動：$currentStatus"
+                        )
+                    }
                 }
+                return
             }
-            return
+            // Do not keep a stale AIDL proxy after its remote process dies.
+            acceleratorService = null
+            serviceBound = false
         }
 
         if (bindingInProgress) return
@@ -260,8 +265,17 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val remoteBinder = remote.asBinder()
+        if (!remoteBinder.isBinderAlive) {
+            acceleratorService = null
+            serviceBound = false
+            showStatus("Shizuku GPU 控制服務已中斷；正在重新連接，請稍後再啟動 HUD")
+            connectAndStart()
+            return
+        }
+
         val binderBundle = Bundle().apply {
-            putBinder(GpuOverlayService.EXTRA_REMOTE_BINDER, remote.asBinder())
+            putBinder(GpuOverlayService.EXTRA_REMOTE_BINDER, remoteBinder)
         }
         val intent = Intent(this, GpuOverlayService::class.java).apply {
             putExtra(GpuOverlayService.EXTRA_REMOTE_BUNDLE, binderBundle)
