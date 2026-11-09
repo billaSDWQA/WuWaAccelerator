@@ -64,7 +64,7 @@ CI 會執行：
 3. Debug 與 Release APK 建置
 4. 上傳可直接測試的 Debug APK artifact
 
-在 GitHub 開啟 **Actions → Android CI 1.0.0**，選擇最新且成功的執行紀錄，下載 `WuWaAccelerator-1.0.0-debug` artifact 並解壓縮安裝。
+在 GitHub 開啟 **Actions → Android CI 1.0.x**，選擇最新且成功的執行紀錄，下載 `WuWaAccelerator-1.0.1-debug` artifact 並解壓縮安裝。
 
 若新版 APK 無法覆蓋安裝舊版，先在舊版 App 內停止並確認 GPU 原始值已還原，再解除安裝舊版。GitHub Hosted Runner 的 Debug 簽章可能隨建置不同。
 
