@@ -163,20 +163,58 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun scheduleLocked(delay: Long) {
         future?.cancel(false)
-        future = scheduler.scheduleWithFixedDelay({
+        // Do not hold the controller lock while dumpsys runs. A stop/restore request
+        // must remain responsive even if foreground detection takes its full timeout.
+        future = scheduler.scheduleWithFixedDelay(
+            { pollOnce() },
+            delay,
+            POLL_MS,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    private fun pollOnce() {
+        val shouldMonitor = synchronized(lock) { monitoring }
+        if (!shouldMonitor) {
             synchronized(lock) {
-                if (monitoring) pollLocked()
-                else if (hasBackup() && restoreLocked()) {
+                if (!monitoring && hasBackup() && restoreLocked()) {
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
                 }
             }
-        }, delay, POLL_MS, TimeUnit.MILLISECONDS)
+            return
+        }
+
+        // Potentially slow shell commands execute outside the controller lock.
+        val detection = readForeground()
+        val shouldSampleThermal = synchronized(lock) {
+            monitoring &&
+                detection.packageName == GAME &&
+                System.currentTimeMillis() - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS
+        }
+        val sampledThermalStatus = if (shouldSampleThermal) readThermalStatus() else null
+
+        synchronized(lock) {
+            // A stop may have happened while dumpsys was running. Never apply a new
+            // boost after that stop; perform only a pending safe restore.
+            if (!monitoring) {
+                if (hasBackup() && restoreLocked()) {
+                    status = "GPU 原始值已確認還原。${gpuSummary()}"
+                    future?.cancel(false)
+                    future = null
+                }
+            } else {
+                pollLocked(detection, shouldSampleThermal, sampledThermalStatus)
+            }
+        }
     }
 
-    private fun pollLocked() {
-        val detection = readForeground()
+    private fun pollLocked(
+        detection: ForegroundResult,
+        thermalSampled: Boolean,
+        sampledThermalStatus: Int?
+    ) {
         val foreground = detection.packageName
         if (foreground == null) {
             unknownSamples++
@@ -198,10 +236,9 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         if (foreground == GAME) {
             exitSamples = 0
-            val now = System.currentTimeMillis()
-            if (now - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS) {
-                thermalStatus = readThermalStatus()
-                lastThermalSampleAtMs = now
+            if (thermalSampled) {
+                thermalStatus = sampledThermalStatus
+                lastThermalSampleAtMs = System.currentTimeMillis()
             }
 
             val gpuLoad = readGpuLoadPercent()
