@@ -28,7 +28,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="GPU 即時遙測（唯讀）"
+        android:text="GPU／CPU／遊戲呈現即時遙測（唯讀）"
         android:textSize="15sp"
         android:textStyle="bold" />
 
