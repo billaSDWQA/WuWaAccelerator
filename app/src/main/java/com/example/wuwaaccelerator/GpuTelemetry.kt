@@ -106,27 +106,43 @@ internal data class GpuTelemetrySnapshot(
             }
         }
 
+        val futureTimestamp = nowElapsedMs < capturedAtElapsedMs
         val ageMs = (nowElapsedMs - capturedAtElapsedMs).coerceAtLeast(0L)
-        val freshness = if (ageMs > STALE_AFTER_MS) "資料已過期" else "資料新鮮"
+        val snapshotFresh = !futureTimestamp && ageMs <= STALE_AFTER_MS
+        val freshness = when {
+            futureTimestamp -> "時間戳異常"
+            !snapshotFresh -> "資料已過期"
+            else -> "資料新鮮"
+        }
         val state = if (monitorRunning) "執行中" else "已停止（保留最後讀值）"
         val selectedLoad = gpuLoad?.takeIf { it.error == null }
         val loadModeVerified = selectedLoad?.let { reading ->
             reading.sourcePath != GpuSysfsPaths.CURRENT_UTILIZATION || isVerifiedSgpuJiffiesSource()
         } == true
-        val loadValue = if (loadModeVerified) selectedLoad?.normalizedValue else null
-        val loadText = if (loadValue != null) "$loadValue%" else "不可用"
+        val loadValue = gpuLoadPercent(nowElapsedMs, STALE_AFTER_MS)?.toString()
+        val loadText = loadValue?.let { "$it%" } ?: "不可用"
         val loadLabel = if (selectedLoad?.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION) {
             "GPU 驅動利用率（SGPU）"
         } else {
             "GPU 負載"
         }
-        val cuValue = computeUnitUtilization?.takeIf { it.error == null }?.normalizedValue
+        val cuValue = computeUnitUtilization?.takeIf { metric ->
+            metric.error == null &&
+                metric.sampledAtElapsedMs > 0L &&
+                nowElapsedMs >= metric.sampledAtElapsedMs &&
+                nowElapsedMs - metric.sampledAtElapsedMs <= STALE_AFTER_MS
+        }?.normalizedValue
+        val currentClockText = when {
+            futureTimestamp -> "時間戳異常"
+            !snapshotFresh -> "資料已過期"
+            else -> formatCurrentFrequency(currentFrequency)
+        }
         val lines = mutableListOf(
             "GPU 監視器：$state",
             "取樣新鮮度：" + freshness + "（" + ageMs + " ms）",
             "$loadLabel：$loadText",
             "GPU CU 利用率（輔助指標，非整體 GPU 使用率）：" + (cuValue?.let { "$it%" } ?: "不可用"),
-            "GPU 實際時脈 cur_freq：" + formatCurrentFrequency(currentFrequency),
+            "GPU 實際時脈 cur_freq：" + currentClockText,
             "GPU 最低頻率設定 min_freq：" + formatFrequency(minFrequency),
             "GPU 最高頻率上限 max_freq：" + formatFrequency(maxFrequency),
             "GPU 負載來源模式 utilization_source：" + (utilizationSource?.normalizedValue ?: "不可用"),
@@ -142,6 +158,8 @@ internal data class GpuTelemetrySnapshot(
                 lines += "負載狀態：" + it.error
             } else if (it.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION && !loadModeVerified) {
                 lines += "負載狀態：需要 utilization_source=jiffies 且 available_utilization_sources 包含 jiffies；不交給自動調頻"
+            } else if (loadValue == null) {
+                lines += "負載狀態：資料已過期或時間戳異常；不交給自動調頻"
             }
         } ?: run {
             lines += "負載狀態：沒有找到可解析的 GPU 負載來源"
