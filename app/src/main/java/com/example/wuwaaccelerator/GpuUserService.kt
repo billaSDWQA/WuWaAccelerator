@@ -127,7 +127,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\\n\\n" + cpuTelemetryMonitor.displayText()
+    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\n\n" + cpuTelemetryMonitor.displayText()
 
     override fun destroy() {
         synchronized(lock) {
@@ -183,6 +183,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!monitoring) {
                 if (hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
+                    cpuTelemetryMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
