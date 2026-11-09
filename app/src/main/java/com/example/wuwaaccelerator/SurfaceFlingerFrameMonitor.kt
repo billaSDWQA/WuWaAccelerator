@@ -12,34 +12,30 @@ internal data class FramePresentationSnapshot(
     val layerName: String?,
     val totalFrames: Long?,
     val droppedFrames: Long?,
-    val p95IntervalMs: Double?,
-    val p99IntervalMs: Double?,
-    val over16Point7MsPercent: Double?,
+    val averageFps: Double?,
+    val onePercentLowFps: Double?,
     val status: String
 ) {
     fun toDisplayText(): String {
-        if (layerName == null) return "遊戲呈現統計：$status"
-        val total = totalFrames?.toString() ?: "N/A"
+        if (layerName == null) return "遊戲幀率統計：$status"
+        val average = averageFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "N/A"
+        val low = onePercentLowFps?.let { String.format(java.util.Locale.US, "%.1f", it) }
+            ?: "樣本不足（至少 100 幀）"
         val dropped = droppedFrames?.toString() ?: "N/A"
-        val p95 = p95IntervalMs?.let { String.format(java.util.Locale.US, "%.1f ms", it) } ?: "N/A"
-        val p99 = p99IntervalMs?.let { String.format(java.util.Locale.US, "%.1f ms", it) } ?: "N/A"
-        val over = over16Point7MsPercent?.let { String.format(java.util.Locale.US, "%.1f%%", it) } ?: "N/A"
         return listOf(
-            "SurfaceFlinger 呈現統計（非遊戲引擎 GPU frame time）",
-            "鳴潮 Layer：$layerName",
-            "統計影格：$total；SurfaceFlinger droppedFrames：$dropped",
-            "呈現間隔 P95/P99：$p95 / $p99",
-            "呈現間隔 >16.7 ms：$over",
+            "平均 FPS：$average",
+            "1% Low FPS：$low",
+            "SurfaceFlinger droppedFrames：$dropped",
+            "來源：SurfaceFlinger 呈現間隔估算，非遊戲引擎內部 GPU render time",
             "狀態：$status"
         ).joinToString("\n")
     }
 
     companion object {
         fun unavailable(status: String, nowMs: Long = System.nanoTime() / 1_000_000L) =
-            FramePresentationSnapshot(nowMs, null, null, null, null, null, null, status)
+            FramePresentationSnapshot(nowMs, null, null, null, null, null, status)
     }
 }
-
 /**
  * Best-effort SurfaceFlinger timestats sampler. It is enabled only while the game
  * is detected in the foreground, and is always disabled on confirmed exit/stop.
@@ -180,33 +176,34 @@ internal object SurfaceFlingerTimestatsParser {
         val selected = parsed.maxByOrNull { it.first.second ?: 0L }
             ?: return FramePresentationSnapshot.unavailable("沒有可用影格統計", nowMs)
         val bins = selected.second
-        val p95 = percentileMs(bins, 0.95)
-        val p99 = percentileMs(bins, 0.99)
-        val count = bins.sumOf { it.second }
-        val over = if (count > 0L) {
-            bins.filter { it.first > 16_700_000L }.sumOf { it.second }.toDouble() * 100.0 / count
+        val sampleCount = bins.sumOf { it.second }
+        val averageIntervalNs = if (sampleCount > 0L) {
+            bins.sumOf { it.first.toDouble() * it.second.toDouble() } / sampleCount.toDouble()
+        } else null
+        val averageFps = averageIntervalNs
+            ?.takeIf { it > 0.0 }
+            ?.let { 1_000_000_000.0 / it }
+        val onePercentLowFps = if (sampleCount >= 100L) {
+            val tailCount = kotlin.math.ceil(sampleCount * 0.01).toLong().coerceAtLeast(1L)
+            var remaining = tailCount
+            var fpsSum = 0.0
+            for ((intervalNs, count) in bins.sortedByDescending { it.first }) {
+                if (remaining <= 0L) break
+                val take = minOf(count, remaining)
+                fpsSum += (1_000_000_000.0 / intervalNs.toDouble()) * take.toDouble()
+                remaining -= take
+            }
+            if (remaining == 0L) fpsSum / tailCount.toDouble() else null
         } else null
         return FramePresentationSnapshot(
             sampledAtMs = nowMs,
             layerName = selected.first.first,
             totalFrames = selected.first.second,
             droppedFrames = selected.first.third,
-            p95IntervalMs = p95,
-            p99IntervalMs = p99,
-            over16Point7MsPercent = over,
-            status = "取樣成功；直方圖樣本數=$count"
+            averageFps = averageFps,
+            onePercentLowFps = onePercentLowFps,
+            status = "取樣成功；直方圖樣本數=$sampleCount"
         )
     }
 
-    private fun percentileMs(bins: List<Pair<Long, Long>>, percentile: Double): Double? {
-        val total = bins.sumOf { it.second }
-        if (total <= 0L) return null
-        val target = kotlin.math.ceil(total * percentile).toLong().coerceAtLeast(1L)
-        var cumulative = 0L
-        for ((nanos, count) in bins.sortedBy { it.first }) {
-            cumulative += count
-            if (cumulative >= target) return nanos / 1_000_000.0
-        }
-        return null
-    }
 }
