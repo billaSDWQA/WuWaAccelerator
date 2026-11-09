@@ -1,5 +1,6 @@
 package com.example.wuwaaccelerator
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal enum class TelemetryStatus {
@@ -19,6 +20,7 @@ internal data class TelemetryReading<T>(
 internal data class GpuTelemetrySnapshot(
     val sampledAtMs: Long,
     val loadPercent: TelemetryReading<Int>,
+    val loadSources: List<TelemetryReading<Int>>,
     val currentFrequencyKHz: TelemetryReading<Long>,
     val minimumFrequencyKHz: TelemetryReading<Long>,
     val maximumFrequencyKHz: TelemetryReading<Long>,
@@ -28,6 +30,18 @@ internal data class GpuTelemetrySnapshot(
     fun toJson(): String {
         val json = JSONObject().put("sampledAtMs", sampledAtMs)
         putMetric(json, "load", loadPercent, loadPercent.value?.toString())
+        val sources = JSONArray()
+        loadSources.forEach { reading ->
+            sources.put(
+                JSONObject()
+                    .put("status", reading.status.name)
+                    .put("source", reading.source ?: JSONObject.NULL)
+                    .put("value", reading.value ?: JSONObject.NULL)
+                    .put("raw", reading.raw ?: JSONObject.NULL)
+                    .put("reason", reading.reason ?: JSONObject.NULL)
+            )
+        }
+        json.put("loadSources", sources)
         putMetric(json, "currentFrequencyKHz", currentFrequencyKHz, currentFrequencyKHz.value?.toString())
         putMetric(json, "minimumFrequencyKHz", minimumFrequencyKHz, minimumFrequencyKHz.value?.toString())
         putMetric(json, "maximumFrequencyKHz", maximumFrequencyKHz, maximumFrequencyKHz.value?.toString())
@@ -60,6 +74,7 @@ internal data class GpuTelemetrySnapshot(
             return GpuTelemetrySnapshot(
                 sampledAtMs,
                 missing(),
+                emptyList(),
                 missing(),
                 missing(),
                 missing(),
@@ -93,22 +108,49 @@ internal object GpuTelemetryParser {
         }
     }
 
+    fun readLoadSources(
+        paths: List<String>,
+        read: (String) -> String?
+    ): List<TelemetryReading<Int>> =
+        paths.mapNotNull { path ->
+            read(path)?.let { raw -> parseLoadPercent(path, raw) }
+        }
+
+    /**
+     * Compare only sources that parsed as explicit percentages (same 0–100 unit).
+     * If multiple candidate nodes disagree by more than 15 percentage points,
+     * mark load unavailable rather than feeding a potentially unrelated signal
+     * into the adaptive controller.
+     */
+    fun chooseLoad(readings: List<TelemetryReading<Int>>): TelemetryReading<Int> {
+        val valid = readings.filter {
+            it.status == TelemetryStatus.AVAILABLE && it.value != null
+        }
+        if (valid.isEmpty()) {
+            return readings.firstOrNull { it.status == TelemetryStatus.MALFORMED }
+                ?: TelemetryReading(
+                    TelemetryStatus.UNAVAILABLE,
+                    reason = "候選 GPU 負載節點皆不可讀"
+                )
+        }
+
+        val values = valid.mapNotNull { it.value }
+        val spread = (values.maxOrNull() ?: 0) - (values.minOrNull() ?: 0)
+        if (valid.size > 1 && spread > 15) {
+            return TelemetryReading(
+                TelemetryStatus.UNAVAILABLE,
+                source = valid.mapNotNull { it.source }.joinToString(","),
+                raw = valid.joinToString(";") { "${it.source}=${it.raw}" }.take(240),
+                reason = "多個 GPU 負載來源差異達 $spread 個百分點；暫停以此數據自適應升頻"
+            )
+        }
+        return valid.first()
+    }
+
     fun firstReadableLoad(
         paths: List<String>,
         read: (String) -> String?
-    ): TelemetryReading<Int> {
-        var malformed: TelemetryReading<Int>? = null
-        for (path in paths) {
-            val raw = read(path) ?: continue
-            val parsed = parseLoadPercent(path, raw)
-            if (parsed.status == TelemetryStatus.AVAILABLE) return parsed
-            if (malformed == null) malformed = parsed
-        }
-        return malformed ?: TelemetryReading(
-            TelemetryStatus.UNAVAILABLE,
-            reason = "候選 GPU 負載節點皆不可讀"
-        )
-    }
+    ): TelemetryReading<Int> = chooseLoad(readLoadSources(paths, read))
 
     fun parseFrequencyKHz(
         source: String,
