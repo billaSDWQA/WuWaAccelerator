@@ -1,5 +1,6 @@
 package com.example.wuwaaccelerator
 
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -54,15 +55,23 @@ internal class SurfaceFlingerFrameMonitor(
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-Frame-Presentation").apply { isDaemon = true } }
     private val latest = AtomicReference(FramePresentationSnapshot.unavailable("尚未啟動"))
     @Volatile private var enabled = false
+    @Volatile private var requested = false
     private var future: ScheduledFuture<*>? = null
 
     @Synchronized
     fun start() {
-        if (enabled || future?.isDone == false) return
+        if (requested) return
+        requested = true
         future = executor.scheduleWithFixedDelay({
+            if (!requested) return@scheduleWithFixedDelay
             if (!enabled) {
                 val result = command(listOf("SurfaceFlinger", "--timestats", "-enable"), 2500L)
                 enabled = result != null
+                if (!requested && enabled) {
+                    command(listOf("SurfaceFlinger", "--timestats", "-disable"), 2500L)
+                    enabled = false
+                    return@scheduleWithFixedDelay
+                }
                 if (!enabled) {
                     latest.set(FramePresentationSnapshot.unavailable(
                         "此韌體不允許或不支援 SurfaceFlinger timestats"
@@ -81,13 +90,14 @@ internal class SurfaceFlingerFrameMonitor(
 
     @Synchronized
     fun stop() {
+        requested = false
         future?.cancel(false)
         future = null
         if (enabled) {
             // Run disable on the same executor after any active dump has returned.
+            enabled = false
             executor.execute {
                 command(listOf("SurfaceFlinger", "--timestats", "-disable"), 2500L)
-                enabled = false
                 latest.set(FramePresentationSnapshot.unavailable("已停止並關閉 SurfaceFlinger timestats"))
             }
         } else {
@@ -109,13 +119,19 @@ internal class SurfaceFlingerFrameMonitor(
                 val process = ProcessBuilder(
                     listOf("/system/bin/dumpsys") + arguments
                 ).redirectErrorStream(true).start()
+                val output = ByteArrayOutputStream()
+                val reader = Thread {
+                    runCatching { process.inputStream.use { it.copyTo(output) } }
+                }.apply { isDaemon = true; start() }
                 if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
                     process.destroyForcibly()
                     runCatching { process.waitFor(200, TimeUnit.MILLISECONDS) }
+                    reader.join(300L)
                     return null
                 }
-                if (process.exitValue() != 0) null
-                else process.inputStream.bufferedReader().use { it.readText() }
+                reader.join(500L)
+                if (reader.isAlive || process.exitValue() != 0) null
+                else String(output.toByteArray(), Charsets.UTF_8)
             } catch (_: Exception) {
                 null
             }
