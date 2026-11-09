@@ -43,6 +43,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val telemetryMonitor = GpuTelemetryMonitor()
     private val cpuTelemetryMonitor = CpuTelemetryMonitor()
     private val framePresentationMonitor = SurfaceFlingerFrameMonitor()
+    private val gpuTemperatureMonitor = GpuTemperatureMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -73,6 +74,8 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (monitoring) {
             telemetryMonitor.start()
             cpuTelemetryMonitor.start()
+        gpuTemperatureMonitor.start()
+            gpuTemperatureMonitor.start()
             status = "監控已啟動；${gpuSummary()}"
             return@synchronized true
         }
@@ -98,6 +101,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         monitoring = true
         telemetryMonitor.start()
         cpuTelemetryMonitor.start()
+        gpuTemperatureMonitor.start()
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -117,6 +121,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (restored) {
             telemetryMonitor.stop()
             cpuTelemetryMonitor.stop()
+            gpuTemperatureMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
@@ -131,7 +136,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText() + "\n\n" + cpuTelemetryMonitor.displayText() + "\n\n" + "Android 熱狀態：${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；記憶體壓力：${GpuAdaptivePolicy.memoryLabel(memoryPressureSnapshot)}" + "\n\n" + framePresentationMonitor.displayText()
+    override fun getTelemetrySnapshot(): String = listOf(telemetryMonitor.displayText(), cpuTelemetryMonitor.displayText(), gpuTemperatureMonitor.displayText(), "Android 熱狀態：${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；記憶體壓力：${GpuAdaptivePolicy.memoryLabel(memoryPressureSnapshot)}", framePresentationMonitor.displayText()).joinToString("\n\n")
 
     override fun destroy() {
         synchronized(lock) {
@@ -141,6 +146,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             restoreLocked()
             telemetryMonitor.shutdown()
             cpuTelemetryMonitor.shutdown()
+            gpuTemperatureMonitor.shutdown()
             framePresentationMonitor.shutdown()
             scheduler.shutdownNow()
         }
@@ -167,6 +173,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
                     cpuTelemetryMonitor.stop()
+            gpuTemperatureMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
@@ -194,6 +201,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 if (hasBackup() && restoreLocked()) {
                     telemetryMonitor.stop()
                     cpuTelemetryMonitor.stop()
+            gpuTemperatureMonitor.stop()
                     status = "GPU 原始值已確認還原。${gpuSummary()}"
                     future?.cancel(false)
                     future = null
