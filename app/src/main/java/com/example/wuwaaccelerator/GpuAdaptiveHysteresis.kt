@@ -1,13 +1,12 @@
 package com.example.wuwaaccelerator
 
 /**
- * Dampens frequency-floor changes caused by short GPU-load spikes.
- * Escalation requires two consecutive samples; de-escalation requires three.
- * Thermal or memory guardrails can force an immediate lower target.
+ * Reacts quickly to load increases but requires sustained low load before
+ * lowering the GPU floor. Thermal and memory guardrails can lower immediately.
  */
 internal class GpuAdaptiveHysteresis(
-    private val increaseSamples: Int = 2,
-    private val decreaseSamples: Int = 3
+    private val increaseSamples: Int = 1,
+    private val decreaseSamples: Int = 4
 ) {
     private var current: String? = null
     private var pending: String? = null

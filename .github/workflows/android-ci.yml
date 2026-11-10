@@ -1,13 +1,16 @@
-name: Android CI
+name: Android CI 1.0.x
 
 on:
   # Feature branches are built by pull_request to avoid duplicate push + PR runs.
   push:
     branches:
       - main
+      - feature/1.0.0-full-accelerator
   pull_request:
     branches:
       - main
+      - feature/0.8.0-gpu-telemetry
+      - feature/0.9.0-sgpu-utilization
   workflow_dispatch:
 
 permissions:
@@ -35,6 +38,9 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Run frame-pacing tool tests
+        run: python3 -m unittest discover -s tools/frame_pacing -p 'test_*.py' -v
+
       - name: Run unit tests
         run: bash ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
 
@@ -44,10 +50,23 @@ jobs:
       - name: Build debug and release APKs
         run: bash ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Upload debug APK
+      - name: Verify APK outputs and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEBUG_APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' | sort | head -n 1)"
+          RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | sort | head -n 1)"
+          test -n "$DEBUG_APK" && test -s "$DEBUG_APK"
+          test -n "$RELEASE_APK" && test -s "$RELEASE_APK"
+          sha256sum "$DEBUG_APK" "$RELEASE_APK" | tee app/build/outputs/apk/SHA256SUMS.txt
+
+      - name: Upload debug and release APKs with hashes
         uses: actions/upload-artifact@v4
         with:
-          name: WuWaAccelerator-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: WuWaSmoothAccelerator-1.0.4-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

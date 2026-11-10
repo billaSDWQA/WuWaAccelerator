@@ -27,7 +27,11 @@ class GpuUserService : IAcceleratorService.Stub() {
         private const val CUR_NODE = "$NODE/cur_freq"
         private const val GOV_NODE = "$NODE/governor"
         private const val AVAILABLE_NODE = "$NODE/available_frequencies"
-        private const val POLL_MS = 2000L
+        // Control polls twice per second; load escalation is immediate after one verified sample.
+        private const val POLL_MS = 500L
+        // Activity-manager dumpsys is expensive; reuse the last foreground result
+        // between checks while keeping the GPU controller responsive at 1 Hz.
+        private const val FOREGROUND_SAMPLE_INTERVAL_MS = 2000L
         private const val THERMAL_SAMPLE_INTERVAL_MS = 5000L
         private const val THERMAL_TIMEOUT_MS = 2500L
         private const val DUMPSYS_TIMEOUT_MS = 3000L
@@ -39,24 +43,45 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private val lock = Any()
     private val scheduler: ScheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
-    private val telemetryMonitor = GpuTelemetryMonitor()
+        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Control").apply { isDaemon = true } }
+    private val systemQueryExecutor = Executors.newFixedThreadPool(2) { Thread(it, "WuWa-System-Query").apply { isDaemon = true } }
+    private val gpuLoadSampler = GpuLoadSampler()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
     private val foregroundDump = File(directory, "foreground.txt")
     private val thermalDump = File(directory, "thermal.txt")
     private val minFile = File(MIN_NODE)
+    private val gameModeController = GameModeController(
+        gamePackage = GAME,
+        stateFile = File(directory, "game-mode-state")
+    )
+    private val gameFpsController = GameFpsInterventionController(
+        gamePackage = GAME,
+        stateFile = File(directory, "game-fps-state")
+    )
+    private val displayRefreshRateController = DisplayRefreshRateController(
+        stateFile = File(directory, "display-refresh-state"),
+        fingerprint = Build.FINGERPRINT
+    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
     private var boostActive = false
     private var unknownSamples = 0
     private var exitSamples = 0
-    private var thermalStatus: Int? = null
+    @Volatile private var thermalStatus: Int? = null
     private var lastThermalSampleAtMs = 0L
+    private var lastForegroundCheckAtMs = 0L
+    private var lastForegroundResultAtMs = 0L
+    private var lastProcessedForegroundResultAtMs = 0L
+    private var foregroundCheckInFlight = false
+    private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
+    private var thermalCheckInFlight = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
+    private var gameModeWatchdogFuture: ScheduledFuture<*>? = null
+    private var gameSeenForeground = false
 
     private data class BackupState(
         val fingerprint: String,
@@ -68,13 +93,17 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
-            telemetryMonitor.start()
-            status = "監控已啟動；${gpuSummary()}"
+            status = "Game Mode 控制已啟動；等待鳴潮前景"
             return@synchronized true
         }
         val uid = Process.myUid()
         if (uid != SHELL_UID && uid != ROOT_UID) {
             status = "UserService 執行身分錯誤：UID=$uid（預期 2000 或 0），拒絕寫入"
+            return@synchronized false
+        }
+        val displayRecovery = displayRefreshRateController.restore()
+        if (!displayRecovery.success) {
+            status = "舊螢幕刷新率備份無法安全還原，拒絕開始：${displayRecovery.message}"
             return@synchronized false
         }
         if (hasBackup() && !restoreLocked()) {
@@ -85,56 +114,106 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "不支援裝置：${Build.MANUFACTURER} ${Build.MODEL}"
             return@synchronized false
         }
-        val minimum = readMin()
-        if (minimum == null || !GpuFrequencyPolicy.isValid(minimum)) {
-            status = "無法讀取或驗證 $MIN_NODE；未修改 GPU"
+        // SGPU sysfs is root-owned on this firmware. Use only the
+        // device-advertised Game Mode; optional FPS pacing is applied separately with backup/read-back/rollback.
+        val fpsApplied = gameFpsController.apply()
+        if (!fpsApplied.success) {
+            status = fpsApplied.message
             return@synchronized false
         }
-
+        val applied = gameModeController.applyPerformance()
+        if (!applied.success) {
+            val fpsRollback = gameFpsController.restore()
+            status = applied.message + "；" + fpsRollback.message
+            return@synchronized false
+        }
         monitoring = true
-        telemetryMonitor.start()
         boostActive = false
-        unknownSamples = 0
-        exitSamples = 0
-        thermalStatus = null
-        lastThermalSampleAtMs = 0L
-        adaptiveHysteresis.reset()
-        scheduleLocked(0L)
-        status = "監控啟動（Shizuku UID=$uid）；${gpuSummary()}；等待鳴潮"
+        gameSeenForeground = false
+        scheduleGameModeWatchdogLocked()
+        status = applied.message + "；" + fpsApplied.message
         true
     }
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
-        val restored = restoreLocked()
+        gameModeWatchdogFuture?.cancel(false)
+        gameModeWatchdogFuture = null
+        gameSeenForeground = false
+        stopGameTelemetry()
+        val gpuRestored = !hasBackup() || restoreLocked()
+        val modeRestored = gameModeController.restore()
+        val fpsRestored = gameFpsController.restore()
+        val displayRestored = displayRefreshRateController.restore()
+        val restored = gpuRestored && modeRestored.success && fpsRestored.success && displayRestored.success
         if (restored) {
-            telemetryMonitor.stop()
             future?.cancel(false)
             future = null
             boostActive = false
             adaptiveHysteresis.reset()
-            status = "已停止；GPU 原始值已確認還原。${gpuSummary()}"
+            status = "已停止；${modeRestored.message}；${fpsRestored.message}；${displayRestored.message}"
         } else {
-            status = "還原失敗，備份保留並持續重試：$status"
-            scheduleLocked(2000L)
+            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}；${fpsRestored.message}；${displayRestored.message}"
         }
         restored
     }
 
     override fun getStatus(): String = status
 
-    override fun getTelemetrySnapshot(): String = telemetryMonitor.displayText()
 
     override fun destroy() {
         synchronized(lock) {
             monitoring = false
             future?.cancel(false)
             future = null
-            restoreLocked()
-            telemetryMonitor.shutdown()
+            gameModeWatchdogFuture?.cancel(false)
+            gameModeWatchdogFuture = null
+            if (hasBackup()) restoreLocked()
+            gameModeController.restore()
+            gameFpsController.restore()
+            displayRefreshRateController.restore()
+            shutdownGameTelemetry()
             scheduler.shutdownNow()
+            systemQueryExecutor.shutdownNow()
         }
         System.exit(0)
+    }
+
+    private fun scheduleGameModeWatchdogLocked() {
+        // Foreground checks are shell-heavy; a 5 s cadence reduces wakeups while
+        // keeping game-exit restoration bounded to one polling interval.
+        gameModeWatchdogFuture?.cancel(false)
+        gameModeWatchdogFuture = scheduler.scheduleWithFixedDelay(
+            {
+                val foreground = readForeground()
+                synchronized(lock) {
+                    if (!monitoring) return@synchronized
+                    if (foreground.packageName == GAME) {
+                        if (!gameSeenForeground) {
+                            gameSeenForeground = true
+                            val refresh = displayRefreshRateController.apply()
+                            status = refresh.message
+                        }
+                    } else if (gameSeenForeground && foreground.packageName != null) {
+                        monitoring = false
+                        gameSeenForeground = false
+                        val restored = gameModeController.restore()
+                        val fpsRestored = gameFpsController.restore()
+                        val displayRestored = displayRefreshRateController.restore()
+                        status = if (restored.success && fpsRestored.success && displayRestored.success) {
+                            "鳴潮已離開前景；${restored.message}；${fpsRestored.message}；${displayRestored.message}"
+                        } else {
+                            "鳴潮已離開前景，但系統設定還原未完成；Game Mode：" + restored.message + "；FPS：" + fpsRestored.message + "；螢幕：" + displayRestored.message
+                        }
+                        gameModeWatchdogFuture?.cancel(false)
+                        gameModeWatchdogFuture = null
+                    }
+                }
+            },
+            0L,
+            5000L,
+            TimeUnit.MILLISECONDS
+        )
     }
 
     private fun scheduleLocked(delay: Long) {
@@ -152,10 +231,10 @@ class GpuUserService : IAcceleratorService.Stub() {
     private fun pollOnce() {
         val shouldMonitor = synchronized(lock) { monitoring }
         if (!shouldMonitor) {
-            synchronized(lock) {
+                synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
-                    telemetryMonitor.stop()
-                    status = "GPU 原始值已確認還原。${gpuSummary()}"
+                    stopGameTelemetry()
+                            status = "Game Mode 原始模式已確認還原。"
                     future?.cancel(false)
                     future = null
                 }
@@ -163,46 +242,105 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        // Potentially slow dumpsys calls execute outside the controller lock.
-        val detection = readForeground()
-        val shouldSampleThermal = synchronized(lock) {
-            monitoring &&
-                detection.packageName == GAME &&
-                System.currentTimeMillis() - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS
+        // Keep slow dumpsys calls off the 1 Hz control thread.
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val requestForeground = synchronized(lock) {
+            monitoring && !foregroundCheckInFlight &&
+                (lastForegroundCheckAtMs == 0L ||
+                    nowElapsedMs - lastForegroundCheckAtMs >= FOREGROUND_SAMPLE_INTERVAL_MS)
         }
-        val sampledThermalStatus = if (shouldSampleThermal) readThermalStatus() else null
+        if (requestForeground) {
+            synchronized(lock) {
+                if (monitoring && !foregroundCheckInFlight) {
+                    foregroundCheckInFlight = true
+                    lastForegroundCheckAtMs = nowElapsedMs
+                    systemQueryExecutor.execute {
+                        val fresh = readForeground()
+                        synchronized(lock) {
+                            if (monitoring) {
+                                cachedForegroundResult = fresh
+                                lastForegroundResultAtMs = SystemClock.elapsedRealtime()
+                            }
+                            foregroundCheckInFlight = false
+                        }
+                    }
+                }
+            }
+        }
+
+        val detectionState = synchronized(lock) {
+            if (!monitoring || lastForegroundResultAtMs == 0L) return
+            val freshResult = lastForegroundResultAtMs > lastProcessedForegroundResultAtMs
+            if (freshResult) lastProcessedForegroundResultAtMs = lastForegroundResultAtMs
+            val stale = nowElapsedMs - lastForegroundResultAtMs > 6000L
+            val result = if (stale) ForegroundResult(null, "前景偵測資料逾時") else cachedForegroundResult
+            result to freshResult
+        }
+        val detection = detectionState.first
+        val foregroundSampled = detectionState.second
+        if (detection.packageName == GAME) synchronized(lock) {
+            if (monitoring) {
+                gpuLoadSampler.start()
+            }
+        }
+
+        val requestThermal = synchronized(lock) {
+            monitoring && detection.packageName == GAME && !thermalCheckInFlight &&
+                (lastThermalSampleAtMs == 0L ||
+                    nowElapsedMs - lastThermalSampleAtMs >= THERMAL_SAMPLE_INTERVAL_MS)
+        }
+        if (requestThermal) {
+            synchronized(lock) {
+                if (monitoring && !thermalCheckInFlight) {
+                    thermalCheckInFlight = true
+                    systemQueryExecutor.execute {
+                        val result = readThermalStatus()
+                        synchronized(lock) {
+                            if (monitoring) {
+                                thermalStatus = result
+                                lastThermalSampleAtMs = SystemClock.elapsedRealtime()
+                            }
+                            thermalCheckInFlight = false
+                        }
+                    }
+                }
+            }
+        }
 
         synchronized(lock) {
             // If stop was requested during shell I/O, never re-apply a boost.
             if (!monitoring) {
-                if (hasBackup() && restoreLocked()) {
-                    telemetryMonitor.stop()
-                    status = "GPU 原始值已確認還原。${gpuSummary()}"
+                        if (hasBackup() && restoreLocked()) {
+                    stopGameTelemetry()
+                            status = "GPU 原始值已確認還原。"
                     future?.cancel(false)
                     future = null
                 }
             } else {
-                pollLocked(detection, shouldSampleThermal, sampledThermalStatus)
+                pollLocked(detection, foregroundSampled)
             }
         }
     }
 
     private fun pollLocked(
         detection: ForegroundResult,
-        thermalSampled: Boolean,
-        sampledThermalStatus: Int?
+        foregroundSampled: Boolean
     ) {
         val foreground = detection.packageName
         if (foreground == null) {
+            if (!foregroundSampled) return
             unknownSamples++
-            if (hasBackup() && unknownSamples >= UNKNOWN_LIMIT) {
-                if (restoreLocked()) {
+            if (unknownSamples >= UNKNOWN_LIMIT) {
+                stopGameTelemetry()
+                        if (hasBackup() && restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
                     exitSamples = 0
                     status = "前景連續辨識失敗，已安全還原：${detection.error}"
-                } else {
+                } else if (hasBackup()) {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
+                } else {
+                    status = "前景連續辨識失敗；未套用 GPU 設定，已停止前景偵測"
                 }
             } else {
                 status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：${detection.error}"
@@ -213,11 +351,6 @@ class GpuUserService : IAcceleratorService.Stub() {
 
         if (foreground == GAME) {
             exitSamples = 0
-            if (thermalSampled) {
-                thermalStatus = sampledThermalStatus
-                lastThermalSampleAtMs = System.currentTimeMillis()
-            }
-
             val gpuLoad = readGpuLoadPercent()
             val memoryPressure = readMemoryPressure()
             val proposedTarget = GpuAdaptivePolicy.chooseTarget(
@@ -249,18 +382,23 @@ class GpuUserService : IAcceleratorService.Stub() {
             return
         }
 
-        if (hasBackup()) {
-            exitSamples++
-            if (exitSamples >= EXIT_LIMIT && restoreLocked()) {
-                boostActive = false
+        if (!foregroundSampled) return
+        exitSamples++
+        if (exitSamples >= EXIT_LIMIT) {
+            stopGameTelemetry()
+                if (hasBackup()) {
+                if (restoreLocked()) {
+                    boostActive = false
+                    adaptiveHysteresis.reset()
+                    status = "鳴潮已離開前景；GPU 原始值已確認還原。"
+                } else {
+                    status = "鳴潮已離開前景，但 GPU 還原失敗；保留備份並重試：$status"
+                }
+            } else {
                 adaptiveHysteresis.reset()
-                exitSamples = 0
-                status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
+                status = "鳴潮已離開前景；GPU 維持原始設定。"
             }
-        } else {
             exitSamples = 0
-            adaptiveHysteresis.reset()
-            status = "自動偵測中；目前前景：$foreground"
         }
     }
 
@@ -338,9 +476,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             }
 
             boostActive = true
-            status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-                "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-                "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
+            status = "GPU 自適應控制已套用。"
             return
         }
 
@@ -377,9 +513,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         boostActive = true
-        status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-            "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-            "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
+        status = "GPU 自適應控制已套用。"
     }
 
     private fun readThermalStatus(): Int? {
@@ -406,7 +540,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     }
 
     private fun readGpuLoadPercent(): Int? =
-        telemetryMonitor.snapshot().gpuLoadPercent(
+        gpuLoadSampler.snapshot().gpuLoadPercent(
             SystemClock.elapsedRealtime(),
             GpuTelemetrySnapshot.STALE_AFTER_MS
         )
@@ -655,7 +789,13 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
 
-    private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
+    private fun stopGameTelemetry() {
+        gpuLoadSampler.stop()
+    }
+
+    private fun shutdownGameTelemetry() {
+        gpuLoadSampler.shutdown()
+    }
 
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256")
