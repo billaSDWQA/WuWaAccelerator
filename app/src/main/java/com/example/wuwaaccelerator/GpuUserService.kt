@@ -169,6 +169,9 @@ class GpuUserService : IAcceleratorService.Stub() {
     }
 
     private fun scheduleGameModeWatchdogLocked() {
+        // Foreground checks are shell-heavy; a 5 s cadence reduces wakeups while
+        // keeping game-exit restoration bounded to one polling interval.
+        gameModeWatchdogFuture?.cancel(false)
         gameModeWatchdogFuture?.cancel(false)
         gameModeWatchdogFuture = scheduler.scheduleWithFixedDelay(
             {
@@ -193,7 +196,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 }
             },
             0L,
-            2000L,
+            5000L,
             TimeUnit.MILLISECONDS
         )
     }
