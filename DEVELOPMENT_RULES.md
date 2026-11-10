@@ -170,12 +170,21 @@
 - Moha Lab Optimization：LICENSE 是 view-only，不可複製、修改、建置或散布；只能記錄公開描述，不能移植程式碼。
 - EliteGaming：單一 commit 與未附可重現測試的高 FPS 增益宣稱不構成證據；Aggressive LMK／殺背景 App 不納入本專案。
 
-- WuWa Config Patcher：Game Resizer 以 Android per-app Game Mode／WindowManager backbuffer downscale 減少遊戲渲染像素，列為 A55 最高優先級獨立實驗候選。先唯讀執行 `cmd game help`、可用時查 `list-modes`／`list-configs`，確認 Samsung／鳴潮是否支援；保留既有 intervention 設定，變更後重啟遊戲、測試、讀回並復原。不得與 INI CVar 調整同時測試。
+- WuWa Config Patcher：Game Resizer 的 per-app downscale 在 SM-A5560 已實測造成遊戲 UI 縮小、操作區域不合用，故淘汰，不得再次套用 0.9 downscale。只保留 CVar 分析／GC guard 概念。Android Game Mode Performance mode 另以不含 downscale／FPS override 的獨立路徑實作，必須保存原模式、讀回驗證並可還原；效果仍待 A55 A/B。
 - Mobile WuWa-Config：V3.7 配置主要測試平台並非 SM-A5560；其 V3.6 forbidden CVar 清單不是 V3.7 權威清單。不得將 Dimensity／Mali／Exynos 1380／2400 設定直接套用 Xclipse 530，必須核對鳴潮 3.7 Client.log。
 - Geilan63lan/Wuwa-Mobile-Config：作者標記有兩份由鄰近 preset 推測重建、未驗證的檔案；不可將 All Devices 標籤視為 A55 實測。
 - WuWa Tool Android：作者已標示 unmaintained；不作為目前可依賴的效能或維護方案。
 - wuwa-tweaks：PC 版工具，不可移植其 PC 資產修改／FPS unlock 到 Android 鳴潮。
 - WuWaLab：官方說明不讀遊戲檔案、不自動化遊戲，與效能控制無關。
+
+
+
+### 2026-11-10 Game Mode 實作決策
+
+- 目標韌體回報鳴潮可用 mode IDs [1, 2]，目前可用標籤為 standard/performance；採用系統已提供的 Performance mode，不自行寫入 device_config 或建立 intervention。
+- 控制流程：讀取目前模式與可用模式 → 僅允許原模式為 standard 且 mode 2 可用 → 持久化備份 → 執行 `cmd game mode performance` → 重新讀回確認；停止時切回原模式、讀回確認後才刪除備份。
+- 原本已是 performance 時不建立備份、不宣稱本 App 改變了模式；custom／未知模式一律拒絕修改。
+- 0.9 downscale 已在 A55 造成 UI／觸控操作不適，正式排除。Performance mode 是否降低幀時間尖峰仍須實機 A/B，不得預先宣稱有效。
 
 ## 開發前檢查紀錄模板
 

@@ -20,10 +20,10 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 - 移除懸浮 HUD、CPU 使用率／頻率監控、GPU 溫度顯示及 SurfaceFlinger FPS／1% Low 診斷介面。
 - App 只保留「啟動順滑加速」與「停止並還原」兩個操作。
-- 保留控制器內部最小必要的 GPU 負載取樣。這不是給使用者看的監控功能，而是判斷 GPU 最低頻率請求的控制輸入；沒有可信負載資料時必須 fail-safe，不可盲目升頻。
-- 保留前景偵測、Android ThermalService 熱保護、記憶體壓力保護、GPU 頻率寫入讀回驗證、原始值備份與安全還原。
-- 不對 CPU governor、cpuset、uclamp、scheduler、電壓或 thermal 節點寫入。Shizuku shell UID 2000 不等於 Root，不能假設可控制 Android／Samsung 核心排程。
-- GPU `min_freq` 只是最低頻率請求，不等於實際 GPU clock；核心 governor 和熱管理仍掌握實際頻率。
+- App 目前改用 Android GameManagerService 已提供給鳴潮的 Performance mode；只在讀回確認目前為 standard、且 available modes 明確包含 2 時才切換。
+- 切換前持久化保存原 Game Mode，切換後重新查詢確認；停止服務時還原原模式並再次讀回驗證。還原失敗時保留備份。
+- 不寫入 Game Mode downscale／FPS intervention，不修改 GPU／CPU sysfs、governor、cpuset、uclamp、scheduler、電壓或 thermal 節點。
+- SGPU `min_freq` 在目標韌體上是 root:root 0644，Shell UID 2000 無寫入權限；舊 GPU 控制路徑不再作為啟動加速的主路徑。
 
 ## 效能驗收目標
 
@@ -37,8 +37,8 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 ## 系統限制
 
-- 僅允許已驗證的 SM-A5560 裝置使用固定 SGPU sysfs 控制路徑。
-- 不需要 Root，但節點寫入是否成功取決於韌體權限；讀取成功不代表可寫入。
+- 僅在 GameManagerService 回報鳴潮支援 Performance mode 時才啟用；不自行建立或覆寫遊戲 intervention。
+- Android Game Mode 是 OEM／系統提供的 per-game 策略入口；模式切換成功不代表 Samsung 韌體一定會提高實際效能。
 - 不會關閉 Android 熱保護、不會強制超頻，也不會殺除其他 App。
 - 外部工具無法保證修復遊戲引擎內部 Shader 編譯、資源載入或遊戲自身邏輯造成的卡頓。
 - 不保證零卡頓或固定 60 FPS；必須以實機幀時間結果判定。
@@ -62,7 +62,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 | [ADB-Android-Optimizer](https://github.com/SchneeSchmitt/ADB-Android-Optimizer) | 可作為 ADB 指令分類與 Android ART 編譯方式的研究材料 | 全域 ART compile 可能增加耗時、發熱與儲存占用；HWUI／RenderEngine Vulkan 設定不會自動切換 UE4 Vulkan；熱狀態覆寫及清除 Samsung GOS 資料不適合本專案 | **不整包執行**；ART 只允許獨立、可回復、指定鳴潮套件的實驗 |
 | [Android 記憶體優化文章](https://github.com/jeanboydev/Android-ReadTheFuckingSourceCode/blob/master/article/android/basic/Android-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96-%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96.md) | 記憶體生命週期、避免不必要配置、先分析再調整的觀念 | 文章主要是 Android App／Java 記憶體管理；鳴潮還涉及 UE4 Native Memory、貼圖串流與 GPU 資源，不能用 Bitmap／GC 技巧直接解決 | **只保留記憶體壓力分析觀念**；不做強制 GC、RAM 清理或背景程序清除 |
 
-| [WuWa Config Patcher](https://github.com/Arglax/WuWa-Mobile-Config-Patcher) | 針對鳴潮的 Shizuku INI 備份／套用／還原、CVar Analyzer、GC CVar 預存檢查；Game Resizer 使用 Android per-app Game Mode backbuffer downscale | v2.1.1 README 標記為 final build、不再更新；其 Game Resizer 文件描述 Android 14+ 使用 `cmd game set --downscale`，Android 13 使用不同 `game_overlay` 流程。尚未在 SM-A5560 驗證 Samsung GameManagerService、鳴潮是否允許 intervention；Kotlin 實作尚未逐行審查，根目錄 LICENSE 未找到 | **最高優先級獨立實驗候選**：先唯讀檢查 `cmd game help/list-modes/list-configs`，確認 A55 是否支援，再用溫和 downscale 做單變因 A/B；只借鑑 CVar 分析／GC guard 概念，不直接複製程式碼 |
+| [WuWa Config Patcher](https://github.com/Arglax/WuWa-Mobile-Config-Patcher) | 針對鳴潮的 Shizuku INI 備份／套用／還原、CVar Analyzer、GC CVar 預存檢查；Game Resizer 使用 Android per-app Game Mode backbuffer downscale | v2.1.1 README 標記為 final build、不再更新；其 Game Resizer 文件描述 Android 14+ 使用 `cmd game set --downscale`，Android 13 使用不同 `game_overlay` 流程。尚未在 SM-A5560 驗證 Samsung GameManagerService、鳴潮是否允許 intervention；Kotlin 實作尚未逐行審查，根目錄 LICENSE 未找到 | **不採用 downscale**：SM-A5560 實測 0.9 downscale 會縮小遊戲介面並造成按鈕難以操作；已停止該實驗。只借鑑 CVar 分析／GC guard 概念，不直接複製程式碼 |
 | [Mobile WuWa-Config](https://github.com/Arglax/Mobile-WuWa-Config) | 鳴潮 3.7 的 Engine.ini／DeviceProfiles.ini 設定、裝置 profile 與 CVar 參考資料；可用來比對已知配置風險 | README 說明配置主要測試於 Dimensity 8300；相容性表列 Exynos 1380／2400，沒有 Exynos 1480／Xclipse 530 的 A55 實測。其 `forbidden_cvars.txt` 標示 V3.6，不能當成 3.7 的最新黑名單 | **只作 CVar 候選與結構參考**；不整份套用其他 SoC 設定，所有變更需以 3.7 Client.log 驗證 |
 | [Geilan63lan/Wuwa-Mobile-Config](https://github.com/Geilan63lan/Wuwa-Mobile-Config) | 個人整理的 3.7 All Devices／Snapdragon 分級設定，可供比對各品質層級差異 | 作者明確標記兩份配置是依相鄰層級推測重建、未驗證；All Devices 代表廣泛 GPU 類別，不代表 A55 專屬調校；沒有 SM-A5560 實測 | **不直接採用預設檔**；僅作差異比較，特別留意作者標記的未驗證值 |
 | [WuWa Tool Android](https://github.com/k4wai1/WuWa-Tool-Android) | Shizuku 管理鳴潮 INI、首次備份、設定檔套用與還原流程 | 作者標示目前 unmaintained，並推薦改用其他 patcher；主要是設定檔管理，不是即時 CPU／GPU 控制器 | **不採用**；備份／還原概念已由本專案既有安全規範涵蓋 |
@@ -96,13 +96,22 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 ### 採用分級
 
-- **最高優先級待驗證**：WuWa Config Patcher 的 Android per-app Game Mode downscale。它是 Android WindowManager backbuffer resize，不是改全域螢幕解析度；必須先確認 A55 `cmd game` 能力、鳴潮 intervention 是否生效，再用獨立 A/B 測試。不可與 Engine.ini 變更同時進行。
-
+- **已實作、待實機驗證**：只切換鳴潮已提供的 Android Performance mode；保存 standard 原模式、切換後讀回確認，停止時還原並讀回。此模式是否對 Samsung A55 的實際遊戲效能有幫助尚未證明。
+- **已排除**：Game Mode downscale 0.9 在 SM-A5560 造成遊戲 UI 縮小、操作區域不合用；不再啟用。
 - **可採納的設計原則**：可信度／新鮮度檢查、事件狀態機概念、交易式寫入與回滾、控制器遲滯、外部 A/B 驗收。
-- **需 A55 實測後才能採用**：SurfaceFlinger／FrameTimeline 訊號、Game Mode、指定套件 ART 編譯、任何新的 SGPU 控制策略。
+- **需 A55 實測後才能採用**：Performance mode 效果、SurfaceFlinger／FrameTimeline 訊號、指定套件 ART 編譯。
 - **不採用**：需要 Root／Magisk／PServer 的控制路徑、未驗證 CPU 核心綁定或 cpuset／uclamp／scheduler 寫入、Adreno 專用 GPU 節點、SurfaceFlinger 注入、關閉熱保護、清除 Samsung GOS 資料、強制清 RAM／殺背景程序。
 - **目前不新增功能**：這份研究紀錄只提供未來設計參考，不代表上述功能已寫入 App 或已在 A55 證明有效。
 - **額外排除項目**：RADV-Xclipse 只供能載入自訂 driver ZIP 的容器 App；GAMA 的 `debug.hwui.renderer` 只控制 HWUI；Surface FPS Monitor 只作外部驗收候選；Moha Lab 為 view-only 授權；EliteGaming 的高 FPS 增益宣稱缺少可重現證據；WuWa 手機設定檔未有 A55 專屬實測，不可直接套用。
+
+
+
+## 2026-11-10 實作狀態
+
+- A55 回報鳴潮可用 Game Mode 為 standard/performance（mode IDs 1、2）；Performance mode 可由 `cmd game mode performance <package>` 切換並由 `cmd game list-modes <package>` 讀回。
+- App 現在只使用上述既有 Performance mode，不設定 downscale 或 FPS intervention；原始模式持久化保存，停止時還原並讀回。
+- A55 的 SGPU `min_freq` 為 root:root 0644，Shell UID 2000 不可寫；因此不再把 GPU sysfs 寫入當成可用加速路徑。
+- Performance mode 的實際流暢度收益尚未完成 A55 A/B 測試；此提交不得視為已證明改善。
 
 ## 建置與測試
 
@@ -117,9 +126,9 @@ CI 會執行單元測試、Android Lint、Debug／Release APK 建置。請以最
 ## A55 實機驗收
 
 1. 確認 Shizuku 已啟動並授予權限。
-2. 確認 App 能啟動 UserService，且 SGPU 節點讀取／寫入權限符合預期。
+2. 確認 App 能啟動 UserService，且鳴潮 Game Mode 由 standard 切換至 performance 後讀回一致；若原本已是 performance，App 不得宣稱自己造成了切換。
 3. 依固定路線測試角色切換、摩托車高速移動與轉向、跳躍／滑翔、第一個技能及大招。
 4. 以外部 ADB／系統工具記錄呈現間隔、GPU 頻率、熱狀態與掉幀；不把單張截圖當成持續效能證據。
-5. 連續測試至少 15–30 分鐘，並在停止加速後確認原始 GPU 設定已安全還原。
+5. 連續測試至少 15–30 分鐘，停止加速後確認原 Game Mode 已安全還原。
 
 **實機驗收尚未完成前，不得宣稱卡頓已解決。**
