@@ -21,7 +21,7 @@ class GameModeParserTest {
         assertEquals(setOf("standard", "performance"), parsed?.availableModes)
     }
     @Test fun parsesStandardMode() {
-        assertEquals("standard", GameModeParser.parse("current mode: standard, available game modes: [1, 2]")?.currentMode)
+        assertEquals("standard", GameModeParser.parse("current mode: standard, available game modes: [standard, performance]")?.currentMode)
     }
     @Test fun rejectsUnknownOutput() {
         assertEquals(null, GameModeParser.parse("null"))
@@ -34,7 +34,7 @@ class GameModeParserTest {
         var current = "standard"
         val runner: (List<String>, Long) -> String? = { args, _ ->
             when (args.getOrNull(2)) {
-                "list-modes" -> "current mode: $current, available game modes: [1, 2]"
+                "list-modes" -> "current mode: $current, available game modes: [standard, performance]"
                 "mode" -> { current = args[3]; "ok" }
                 else -> null
             }
@@ -65,7 +65,7 @@ class GameModeParserTest {
         var current = "standard"
         val runner: (List<String>, Long) -> String? = { args, _ ->
             when (args.getOrNull(2)) {
-                "list-modes" -> "current mode: $current, available game modes: [1, 2]"
+                "list-modes" -> "current mode: $current, available game modes: [standard, performance]"
                 "mode" -> { current = args[3]; "ok" }
                 else -> null
             }
@@ -81,7 +81,7 @@ class GameModeParserTest {
 
     @Test fun alreadyActivePerformanceModeIsNotClaimedAsOurChange() {
         val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
-        val runner: (List<String>, Long) -> String? = { _, _ -> "current mode: performance, available game modes: [1, 2]" }
+        val runner: (List<String>, Long) -> String? = { _, _ -> "current mode: performance, available game modes: [standard, performance]" }
         val controller = GameModeController("game.pkg", File(dir, "mode-state"), runner = runner)
         assertTrue(controller.applyPerformance().success)
         assertFalse(File(dir, "mode-state").exists())
