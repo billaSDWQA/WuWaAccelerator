@@ -60,6 +60,10 @@ class GpuUserService : IAcceleratorService.Stub() {
         gamePackage = GAME,
         stateFile = File(directory, "game-fps-state")
     )
+    private val displayRefreshRateController = DisplayRefreshRateController(
+        stateFile = File(directory, "display-refresh-state"),
+        fingerprint = Build.FINGERPRINT
+    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
@@ -95,6 +99,11 @@ class GpuUserService : IAcceleratorService.Stub() {
         val uid = Process.myUid()
         if (uid != SHELL_UID && uid != ROOT_UID) {
             status = "UserService 執行身分錯誤：UID=$uid（預期 2000 或 0），拒絕寫入"
+            return@synchronized false
+        }
+        val displayRecovery = displayRefreshRateController.restore()
+        if (!displayRecovery.success) {
+            status = "舊螢幕刷新率備份無法安全還原，拒絕開始：${displayRecovery.message}"
             return@synchronized false
         }
         if (hasBackup() && !restoreLocked()) {
@@ -135,15 +144,16 @@ class GpuUserService : IAcceleratorService.Stub() {
         val gpuRestored = !hasBackup() || restoreLocked()
         val modeRestored = gameModeController.restore()
         val fpsRestored = gameFpsController.restore()
-        val restored = gpuRestored && modeRestored.success && fpsRestored.success
+        val displayRestored = displayRefreshRateController.restore()
+        val restored = gpuRestored && modeRestored.success && fpsRestored.success && displayRestored.success
         if (restored) {
             future?.cancel(false)
             future = null
             boostActive = false
             adaptiveHysteresis.reset()
-            status = "已停止；${modeRestored.message}；${fpsRestored.message}"
+            status = "已停止；${modeRestored.message}；${fpsRestored.message}；${displayRestored.message}"
         } else {
-            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}；${fpsRestored.message}"
+            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}；${fpsRestored.message}；${displayRestored.message}"
         }
         restored
     }
@@ -161,6 +171,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (hasBackup()) restoreLocked()
             gameModeController.restore()
             gameFpsController.restore()
+            displayRefreshRateController.restore()
             shutdownGameTelemetry()
             scheduler.shutdownNow()
             systemQueryExecutor.shutdownNow()
@@ -178,16 +189,21 @@ class GpuUserService : IAcceleratorService.Stub() {
                 synchronized(lock) {
                     if (!monitoring) return@synchronized
                     if (foreground.packageName == GAME) {
-                        gameSeenForeground = true
+                        if (!gameSeenForeground) {
+                            gameSeenForeground = true
+                            val refresh = displayRefreshRateController.apply()
+                            status = refresh.message
+                        }
                     } else if (gameSeenForeground && foreground.packageName != null) {
                         monitoring = false
                         gameSeenForeground = false
                         val restored = gameModeController.restore()
                         val fpsRestored = gameFpsController.restore()
-                        status = if (restored.success && fpsRestored.success) {
-                            "鳴潮已離開前景；${restored.message}；${fpsRestored.message}"
+                        val displayRestored = displayRefreshRateController.restore()
+                        status = if (restored.success && fpsRestored.success && displayRestored.success) {
+                            "鳴潮已離開前景；${restored.message}；${fpsRestored.message}；${displayRestored.message}"
                         } else {
-                            "鳴潮已離開前景，但系統設定還原未完成；Game Mode：" + restored.message + "；FPS：" + fpsRestored.message
+                            "鳴潮已離開前景，但系統設定還原未完成；Game Mode：" + restored.message + "；FPS：" + fpsRestored.message + "；螢幕：" + displayRestored.message
                         }
                         gameModeWatchdogFuture?.cancel(false)
                         gameModeWatchdogFuture = null
