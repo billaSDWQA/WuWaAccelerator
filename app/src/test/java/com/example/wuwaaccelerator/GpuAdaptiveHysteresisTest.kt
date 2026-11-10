@@ -7,22 +7,19 @@ import org.junit.Test
 class GpuAdaptiveHysteresisTest {
 
     @Test
-    fun requiresTwoSamplesBeforeIncreasingFloor() {
+    fun raisesFloorOnFirstValidLoadSample() {
         val policy = GpuAdaptiveHysteresis()
-        assertNull(policy.update(GpuAdaptivePolicy.BASE_FLOOR))
         assertEquals(GpuAdaptivePolicy.BASE_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
-        assertEquals(GpuAdaptivePolicy.BASE_FLOOR, policy.update(GpuAdaptivePolicy.MID_FLOOR))
         assertEquals(GpuAdaptivePolicy.MID_FLOOR, policy.update(GpuAdaptivePolicy.MID_FLOOR))
     }
 
     @Test
-    fun requiresThreeSamplesBeforeDecreasingFloor() {
+    fun requiresFourConsecutiveSamplesBeforeLoweringFloor() {
         val policy = GpuAdaptiveHysteresis()
         policy.update(GpuAdaptivePolicy.BASE_FLOOR)
-        policy.update(GpuAdaptivePolicy.BASE_FLOOR)
-        policy.update(GpuAdaptivePolicy.HIGH_FLOOR)
         policy.update(GpuAdaptivePolicy.HIGH_FLOOR)
         assertEquals(GpuAdaptivePolicy.HIGH_FLOOR, policy.update(GpuAdaptivePolicy.HIGH_FLOOR))
+        assertEquals(GpuAdaptivePolicy.HIGH_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
         assertEquals(GpuAdaptivePolicy.HIGH_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
         assertEquals(GpuAdaptivePolicy.HIGH_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
         assertEquals(GpuAdaptivePolicy.BASE_FLOOR, policy.update(GpuAdaptivePolicy.BASE_FLOOR))
@@ -31,7 +28,6 @@ class GpuAdaptiveHysteresisTest {
     @Test
     fun thermalGuardCanForceImmediateLowerFloor() {
         val policy = GpuAdaptiveHysteresis()
-        policy.update(GpuAdaptivePolicy.HIGH_FLOOR)
         policy.update(GpuAdaptivePolicy.HIGH_FLOOR)
         assertEquals(
             GpuAdaptivePolicy.BASE_FLOOR,
