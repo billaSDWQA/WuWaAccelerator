@@ -96,7 +96,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 ### 採用分級
 
-- **已實作、待實機驗證**：只切換鳴潮已提供的 Android Performance mode；保存 standard 原模式、切換後讀回確認，停止時還原並讀回。此模式是否對 Samsung A55 的實際遊戲效能有幫助尚未證明。
+- **已實作、待實機驗證**：切換鳴潮已提供的 Android Performance mode；在 OEM profile 嚴格符合預設條件時加入 60 FPS throttling。兩者分別保存原始狀態、套用後讀回，停止／遊戲離開前景時還原。是否改善 Samsung A55 幀時間仍未證明。
 - **已排除**：Game Mode downscale 0.9 在 SM-A5560 造成遊戲 UI 縮小、操作區域不合用；不再啟用。
 - **可採納的設計原則**：可信度／新鮮度檢查、事件狀態機概念、交易式寫入與回滾、控制器遲滯、外部 A/B 驗收。
 - **需 A55 實測後才能採用**：Performance mode 效果、SurfaceFlinger／FrameTimeline 訊號、指定套件 ART 編譯。
@@ -118,7 +118,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 ## 2026-11-10 實作狀態
 
 - A55 回報鳴潮可用 Game Mode 為 standard/performance（mode IDs 1、2）；Performance mode 可由 `cmd game mode performance <package>` 切換並由 `cmd game list-modes <package>` 讀回。
-- App 現在只使用上述既有 Performance mode，不設定 downscale 或 FPS intervention；原始模式持久化保存，停止時還原並讀回。
+- App 使用既有 Performance mode；符合安全前置條件時套用 Performance FPS=60。原 Game Mode 與 OEM FPS profile 分別持久化備份、讀回驗證，停止／遊戲離開前景時還原。
 - A55 的 SGPU `min_freq` 為 root:root 0644，Shell UID 2000 不可寫；因此不再把 GPU sysfs 寫入當成可用加速路徑。
 - Android 官方說明 FPS throttling 可改善未自行 pacing 遊戲的呈現穩定性；此 60 FPS intervention 已加入安全條件與 rollback，但鳴潮是否屬未 pacing 遊戲、Samsung 韌體是否實際執行及 A55 幀時間收益仍待實機 A/B，不得預先宣稱改善。
 
@@ -135,9 +135,9 @@ CI 會執行單元測試、Android Lint、Debug／Release APK 建置。請以最
 ## A55 實機驗收
 
 1. 確認 Shizuku 已啟動並授予權限。
-2. 確認 App 能啟動 UserService，且鳴潮 Game Mode 由 standard 切換至 performance 後讀回一致；若原本已是 performance，App 不得宣稱自己造成了切換。
+2. 確認 App 能啟動 UserService；確認 OEM profile 符合條件時 Performance FPS intervention 讀回為 60、Scaling 仍為 1.0，再確認鳴潮 Game Mode 切換及讀回一致。若原本已是 performance，App 不得宣稱自己造成了模式切換。
 3. 依固定路線測試角色切換、摩托車高速移動與轉向、跳躍／滑翔、第一個技能及大招。
 4. 以外部 ADB／系統工具記錄呈現間隔、GPU 頻率、熱狀態與掉幀；不把單張截圖當成持續效能證據。
-5. 連續測試至少 15–30 分鐘，停止加速後確認原 Game Mode 已安全還原。
+5. 連續測試至少 15–30 分鐘；停止加速後確認原 Game Mode 與 OEM FPS intervention 均已安全還原。
 
 **實機驗收尚未完成前，不得宣稱卡頓已解決。**
