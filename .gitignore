@@ -27,3 +27,6 @@ secrets.properties
 
 # Android Studio IDE files
 /.idea/
+
+# Local SurfaceFlinger frame-pacing captures
+frame-pacing-results/
