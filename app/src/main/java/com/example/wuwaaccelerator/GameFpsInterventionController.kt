@@ -1,5 +1,4 @@
 package com.example.wuwaaccelerator
-import android.system.Os
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
@@ -75,16 +74,16 @@ internal class GameFpsInterventionController(
     private fun writeState(state: GameModeIntervention): Boolean = runCatching {
         val parent = stateFile.parentFile ?: return false
         if (!parent.exists() && !parent.mkdirs()) return false
-        Os.chmod(parent.absolutePath, 448)
+        if (!restrictToOwner(parent, true)) return false
         val payload = "1\n" + state.scaling + "\n" + state.useAngle + "\n" + state.fps + "\n"
         val complete = payload + sha256(payload) + "\n"
         val temp = File(parent, stateFile.name + ".tmp")
         if (temp.exists() && !temp.delete()) return false
         FileOutputStream(temp).use { it.write(complete.toByteArray(StandardCharsets.UTF_8)); it.flush(); it.fd.sync() }
-        Os.chmod(temp.absolutePath, 384)
+        if (!restrictToOwner(temp, false)) { temp.delete(); return false }
         if (readStateFrom(temp) != state) { temp.delete(); return false }
         Files.move(temp.toPath(), stateFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        Os.chmod(stateFile.absolutePath, 384)
+        if (!restrictToOwner(stateFile, false)) return false
         readState() == state
     }.getOrDefault(false)
 
@@ -99,6 +98,16 @@ internal class GameFpsInterventionController(
         if (lines[1] != "1.0" || angle || lines[3].isNotEmpty()) return null
         GameModeIntervention(lines[1], angle, lines[3])
     }.getOrNull()
+
+    private fun restrictToOwner(file: File, directory: Boolean): Boolean {
+        file.setReadable(false, false)
+        file.setWritable(false, false)
+        file.setExecutable(false, false)
+        val readable = file.setReadable(true, true)
+        val writable = file.setWritable(true, true)
+        val executable = !directory || file.setExecutable(true, true)
+        return readable && writable && executable
+    }
 
     private fun command(args: List<String>): String? = runner(args, commandTimeoutMs)
     private fun sha256(value: String): String =
