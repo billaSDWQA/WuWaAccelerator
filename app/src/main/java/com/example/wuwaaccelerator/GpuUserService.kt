@@ -85,7 +85,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
-            status = "順滑加速服務已啟動；等待鳴潮前景"
+            status = "Game Mode 控制已啟動；等待鳴潮前景"
             return@synchronized true
         }
         val uid = Process.myUid()
@@ -203,7 +203,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     stopGameTelemetry()
-                            status = "GPU 原始值已確認還原。"
+                            status = "Game Mode 原始模式已確認還原。"
                     future?.cancel(false)
                     future = null
                 }
@@ -309,7 +309,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 } else if (hasBackup()) {
                     status = "前景辨識失敗，還原亦失敗；備份保留：$status"
                 } else {
-                    status = "前景連續辨識失敗；未套用 GPU 設定，已停止遊戲呈現統計"
+                    status = "前景連續辨識失敗；未套用 GPU 設定，已停止前景偵測"
                 }
             } else {
                 status = "前景辨識失敗（$unknownSamples/$UNKNOWN_LIMIT）：${detection.error}"

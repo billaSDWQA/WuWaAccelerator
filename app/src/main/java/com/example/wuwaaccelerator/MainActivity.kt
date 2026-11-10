@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(12)
+            .version(13)
     }
 
     private val permissionResultListener =
@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("Shizuku 服務已中斷；若先前套用 GPU 設定，備份仍保留，重新啟動後會先嘗試還原")
+            showStatus("Shizuku 服務已中斷；Game Mode 備份會在服務重新啟動時檢查還原")
         }
     }
 
@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     showStatus(
                         if (started) currentStatus
-                        else "自動加速未能啟動：$currentStatus"
+                        else "加速未能啟動：$currentStatus"
                     )
                 }
             }
@@ -194,7 +194,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        showStatus("正在停止加速並還原 GPU 原始設定…")
+        showStatus("正在停止加速並還原原始 Game Mode…")
         thread(name = "WuWa-Service-Stop") {
             val restored = runCatching { remote.stopAndRestore() }.getOrDefault(false)
             val currentStatus = runCatching { remote.getStatus() }
