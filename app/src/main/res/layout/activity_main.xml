@@ -13,7 +13,7 @@
         android:layout_marginTop="32dp"
         android:layout_marginBottom="24dp"
         android:gravity="center"
-        android:text="WuWa Accelerator 1.0"
+        android:text="WuWa Smooth Accelerator"
         android:textSize="23sp"
         android:textStyle="bold" />
 
@@ -34,14 +34,6 @@
         android:layout_height="56dp"
         android:layout_marginBottom="12dp"
         android:text="啟動順滑加速"
-        android:textSize="16sp" />
-
-    <Button
-        android:id="@+id/btn_hud"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:layout_marginBottom="12dp"
-        android:text="啟動懸浮 HUD（選用）"
         android:textSize="16sp" />
 
     <Button
