@@ -1,13 +1,10 @@
 package com.example.wuwaaccelerator
 
 import android.content.ComponentName
-import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
-import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -31,7 +28,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(10)
+            .version(11)
     }
 
     private val permissionResultListener =
@@ -54,8 +51,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            stopGpuOverlay()
-            showStatus("Shizuku 服務已中斷；懸浮 HUD 已關閉。若先前套用 GPU 設定，備份仍保留，重新啟動 Shizuku 後會先嘗試還原")
+            showStatus("Shizuku 服務已中斷；若先前套用 GPU 設定，備份仍保留，重新啟動後會先嘗試還原")
         }
     }
 
@@ -80,7 +76,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     showStatus(
                         if (started) currentStatus
-                        else "自動偵測未能啟動：$currentStatus"
+                        else "自動加速未能啟動：$currentStatus"
                     )
                 }
             }
@@ -90,8 +86,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            stopGpuOverlay()
-            showStatus("GPU 控制服務已中斷；懸浮 HUD 已關閉。若先前套用 GPU 設定，重新連線後會先嘗試還原")
+            showStatus("GPU 控制服務已中斷；若先前套用 GPU 設定，重新連線後會先嘗試還原")
         }
     }
 
@@ -101,7 +96,6 @@ class MainActivity : AppCompatActivity() {
 
         statusView = findViewById(R.id.tv_status)
         findViewById<Button>(R.id.btn_start).setOnClickListener { connectAndStart() }
-        findViewById<Button>(R.id.btn_hud).setOnClickListener { startGpuOverlay() }
         findViewById<Button>(R.id.btn_stop).setOnClickListener { stopAndRestore() }
 
         Shizuku.addRequestPermissionResultListener(permissionResultListener)
@@ -111,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         if (Shizuku.pingBinder()) {
             connectAndStart()
         } else {
-            showStatus("請先啟動 Shizuku，然後按「啟動自動加速」")
+            showStatus("請先啟動 Shizuku，然後按「啟動順滑加速」")
         }
     }
 
@@ -125,8 +119,7 @@ class MainActivity : AppCompatActivity() {
         Shizuku.removeBinderReceivedListener(binderReceivedListener)
         Shizuku.removeBinderDeadListener(binderDeadListener)
 
-        // The UserService is a daemon so monitoring continues while the game is open.
-        // Unbind this Activity's callback without destroying the remote service.
+        // The UserService is a daemon; unbind this Activity without destroying it.
         if (serviceBound || bindingInProgress) {
             runCatching {
                 Shizuku.unbindUserService(userServiceArgs, serviceConnection, false)
@@ -171,13 +164,12 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         showStatus(
                             if (started) currentStatus
-                            else "自動偵測未能啟動：$currentStatus"
+                            else "自動加速未能啟動：$currentStatus"
                         )
                     }
                 }
                 return
             }
-            // Do not keep a stale AIDL proxy after its remote process dies.
             acceleratorService = null
             serviceBound = false
         }
@@ -202,7 +194,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        showStatus("正在停止監控並還原 GPU 原始設定…")
+        showStatus("正在停止加速並還原 GPU 原始設定…")
         thread(name = "WuWa-Service-Stop") {
             val restored = runCatching { remote.stopAndRestore() }.getOrDefault(false)
             val currentStatus = runCatching { remote.getStatus() }
@@ -211,7 +203,6 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 showStatus(currentStatus)
                 if (restored) {
-                    stopGpuOverlay()
                     runCatching {
                         Shizuku.unbindUserService(userServiceArgs, serviceConnection, true)
                     }
@@ -223,32 +214,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-    }
-
-    private fun startGpuOverlay() {
-        val remote = acceleratorService
-        if (!serviceBound || remote == null || !remote.asBinder().isBinderAlive) {
-            showStatus("請先啟動順滑加速並確認 Shizuku 服務已連線")
-            return
-        }
-        if (!Settings.canDrawOverlays(this)) {
-            showStatus("請授予懸浮視窗權限，返回後再次按「啟動懸浮 HUD」")
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-            return
-        }
-        val binderBundle = Bundle().apply {
-            putBinder(GpuOverlayService.EXTRA_REMOTE_BINDER, remote.asBinder())
-        }
-        val intent = Intent(this, GpuOverlayService::class.java).apply {
-            putExtra(GpuOverlayService.EXTRA_REMOTE_BUNDLE, binderBundle)
-        }
-        runCatching { startForegroundService(intent) }
-            .onSuccess { showStatus("懸浮 HUD 已啟動；CPU／GPU／呈現統計只在鳴潮前景時取樣") }
-            .onFailure { showStatus("無法啟動懸浮 HUD：${it.message}") }
-    }
-
-    private fun stopGpuOverlay() {
-        runCatching { stopService(Intent(this, GpuOverlayService::class.java)) }
     }
 
     private fun refreshStatus() {
