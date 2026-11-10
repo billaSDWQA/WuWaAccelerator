@@ -8,9 +8,9 @@ internal data class GameModeSnapshot(val currentMode: String, val availableModes
 
 internal object GameModeParser {
     fun parse(output: String): GameModeSnapshot? {
-        val current = Regex("""current\\s+mode\\s*:\\s*([a-z0-9_-]+)""", RegexOption.IGNORE_CASE)
+        val current = Regex("""current\s+mode\s*:\s*([a-z0-9_-]+)""", RegexOption.IGNORE_CASE)
             .find(output)?.groupValues?.get(1)?.lowercase() ?: return null
-        val availableText = Regex("""available\\s+game\\s+modes\\s*:\\s*\\[([^]]*)]""", RegexOption.IGNORE_CASE)
+        val availableText = Regex("""available\s+game\s+modes\s*:\s*\\[([^]]*)]""", RegexOption.IGNORE_CASE)
             .find(output)?.groupValues?.get(1) ?: return null
         val modes = availableText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
         return GameModeSnapshot(current, modes)
@@ -43,7 +43,8 @@ internal class GameModeController(
             return GameModeResult(false, "無法安全保存原 Game Mode；未切換")
         }
         if (runCommand(listOf("cmd", "game", "mode", "performance", gamePackage)) == null) {
-            return GameModeResult(false, "切換 Performance mode 失敗；還原備份保留")
+            val rollback = restore()
+            return GameModeResult(false, "切換 Performance mode 失敗；${rollback.message}")
         }
         if (readSnapshot()?.currentMode == "performance") {
             return GameModeResult(true, "已切換並讀回確認鳴潮 Performance mode；未套用降解析度或 FPS 覆寫")
