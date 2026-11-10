@@ -26,7 +26,7 @@ class GameModeParserTest {
         val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
         var current = "standard"
         val runner: (List<String>, Long) -> String? = { args, _ ->
-            when (args.drop(1).firstOrNull()) {
+            when (args.getOrNull(2)) {
                 "list-modes" -> "current mode: $current, available game modes: [1, 2]"
                 "mode" -> { current = args[3]; "ok" }
                 else -> null
@@ -45,7 +45,7 @@ class GameModeParserTest {
         val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
         var current = "standard"
         val runner: (List<String>, Long) -> String? = { args, _ ->
-            if (args.drop(1).firstOrNull() == "list-modes") "current mode: $current, available game modes: [1]"
+            if (args.getOrNull(2) == "list-modes") "current mode: $current, available game modes: [1]"
             else { current = args.getOrNull(3) ?: current; "ok" }
         }
         val result = GameModeController("game.pkg", File(dir, "mode-state"), runner = runner).applyPerformance()
