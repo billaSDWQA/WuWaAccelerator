@@ -75,7 +75,7 @@ internal data class GpuTelemetrySnapshot(
     }
 
     companion object {
-        const val STALE_AFTER_MS = 3000L
+        const val STALE_AFTER_MS = 1500L
 
         fun empty(): GpuTelemetrySnapshot = GpuTelemetrySnapshot(
             capturedAtElapsedMs = 0L,
@@ -224,7 +224,7 @@ internal class GpuTelemetryCollector(
 
 internal class GpuLoadSampler(
     private val collector: GpuTelemetryCollector = GpuTelemetryCollector(),
-    private val intervalMs: Long = 1000L
+    private val intervalMs: Long = 500L
 ) {
     private val executor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
