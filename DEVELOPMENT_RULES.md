@@ -127,7 +127,32 @@
 - **未完成事項：** 實機驗收、權限或其他阻塞。
 - **下一步：** 依風險與依賴排序，不只列出眼前單點。
 
----
+## 10. 外部效能專案審查與移植規則（強制）
+
+每當研究或打算採用外部 Android／遊戲效能專案時，必須先依照 README 的「外部專案與技術研究」清單審查，並遵守：
+
+1. **先核對平台適用性**：Android 版本、OEM、SoC、GPU、核心版本、裝置型號及遊戲引擎／渲染 API；「支援 Exynos」不代表支援 Exynos 1480，「支援 Android」不代表支援 One UI 9／Android 17。
+2. **查實際權限**：分清 Root、Magisk、Shizuku、ADB Shell UID 2000、OEM 受信任系統服務。不能把「無 Root」等同「Shell 可以寫所有 sysfs」。
+3. **讀原始碼，不只讀 README**：確認真正執行的命令、sysfs 路徑、屬性名稱、單位、讀寫權限、呼叫時機、錯誤處理、備份與還原；只讀 README 時必須標記「尚未完成原始碼審查」。
+4. **核對版本與維護狀態**：查看最近 commit、release、changelog、Issue／PR、Android API 適配與已知故障。過時專案可借鑑演算法概念，但不可當成可直接執行的方案。
+5. **檢查授權條款**：若要複製程式碼或資產，先確認 License、NOTICE、相依套件授權及必要歸屬；只借鑑概念也要記錄來源。
+6. **拆分概念與實作**：標示「可採納設計」「需 A55 實測」「不採用」；不得因別款手機成功就直接移植 CPU／GPU 頻率表或硬體節點。
+7. **先做最小、可回復的驗證**：任何新控制先讀取原始值、驗證裝置與權限、備份、寫入、讀回；讀回不可用時不得假裝驗證成功；失敗必須還原。
+8. **禁止照搬危險操作**：不得引入關閉 thermal、thermal override 偽造狀態、停用 Samsung GOS、殺背景程序、強制清 RAM、未驗證的 CPU affinity／cpuset／uclamp／scheduler 寫入、跨 OEM SurfaceFlinger 注入或未授權的遊戲檔案修改。
+9. **驗收必須對準兩個產品目標**：比較相同場景的 frame-time／呈現間隔尖峰、掉幀與長時穩態；不得以 UI 數字、跑分、平均 FPS 或 CI 成功代替實機證據。
+10. **記錄審查深度與結論**：每個候選專案都要記錄來源 URL、檢查日期、已讀檔案／程式碼、權限需求、相容性、風險、採用決策與尚未驗證事項。
+
+### 2026-11-10 外部研究基準
+
+- Uperf：只保留事件驅動 Hint／SfLag 的概念；不採用 SfAnalysis 注入與 Root 控制。
+- PULSE：只保留閉環控制、目標不可達判斷及功耗／順暢度折衷概念；PServer 與 Adreno 控制不適用 A55。
+- ApexTuner：只保留交易式備份／回滾的設計參考；CPU／GPU 寫入需要 Root，且其 read-back 不可用時回報成功的行為不符合本專案驗證門檻。
+- FrameX：只保留外部 SurfaceFlinger 呈現統計與 ThermalService 診斷作為候選驗收工具；不引入 HUD、RAM 清理或背景程序管理。
+- Project Zenith：Game Mode 與指定 App ART 編譯列為獨立驗證候選，不直接納入加速器。
+- HyperBoost：需進一步逐項審查原始碼，不可只根據功能列表採用。
+- GameCore：採用可信讀值、明確 unavailable 與原值還原的設計原則。
+- Game-Booster-v1、ADB-Android-Optimizer：不採用清 RAM、殺程序、HWUI 當成 UE Vulkan 加速或熱保護覆寫等做法。
+- Android 官方文件：優先參照 ADPF、Frame Pacing／Swappy、Perfetto／FrameTimeline；必須注意這些 API 有些需要遊戲引擎端整合，外部 App 不具備等價控制能力。
 
 ## 開發前檢查紀錄模板
 
@@ -145,5 +170,3 @@
 | 全局影響與依賴關係 | |
 | 根因證據與待驗證假設 | |
 | 本次修改計畫與回歸測試 | |
-
-未完成必要檢查，不得開始實作。
