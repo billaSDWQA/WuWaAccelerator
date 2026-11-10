@@ -1,5 +1,7 @@
 # WuWaAccelerator 1.0.1
 
+> 開發前必讀：[DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md)。所有程式碼、CI、效能策略與版本變更都必須遵守該文件的全局檢查、失敗追蹤及驗收流程。
+
 **鳴潮專屬加速器｜Samsung Galaxy A55 5G（SM-A5560 / Exynos 1480 / Xclipse 530）**
 
 本分支為 1.0.x 完整整合線，保留 0.9.0 的 SGPU 自適應最低頻率控制，並整合 CPU/GPU 即時監測、GPU 專用溫度感測、平均 FPS 與 1% Low 簡化統計，以及 HUD 前景生命週期清理。
