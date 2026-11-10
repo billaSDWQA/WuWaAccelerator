@@ -50,6 +50,13 @@
 | [ADB-Android-Optimizer](https://github.com/SchneeSchmitt/ADB-Android-Optimizer) | 可作為 ADB 指令分類與 Android ART 編譯方式的研究材料 | 全域 ART compile 可能增加耗時、發熱與儲存占用；HWUI／RenderEngine Vulkan 設定不會自動切換 UE4 Vulkan；熱狀態覆寫及清除 Samsung GOS 資料不適合本專案 | **不整包執行**；ART 只允許獨立、可回復、指定鳴潮套件的實驗 |
 | [Android 記憶體優化文章](https://github.com/jeanboydev/Android-ReadTheFuckingSourceCode/blob/master/article/android/basic/Android-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96-%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96.md) | 記憶體生命週期、避免不必要配置、先分析再調整的觀念 | 文章主要是 Android App／Java 記憶體管理；鳴潮還涉及 UE4 Native Memory、貼圖串流與 GPU 資源，不能用 Bitmap／GC 技巧直接解決 | **只保留記憶體壓力分析觀念**；不做強制 GC、RAM 清理或背景程序清除 |
 
+| [WuWa Config Patcher](https://github.com/Arglax/WuWa-Mobile-Config-Patcher) | 針對鳴潮的 Shizuku INI 備份／套用／還原、CVar Analyzer、GC CVar 預存檢查；Game Resizer 使用 Android per-app Game Mode backbuffer downscale | v2.1.1 README 標記為 final build、不再更新；其 Game Resizer 文件描述 Android 14+ 使用 `cmd game set --downscale`，Android 13 使用不同 `game_overlay` 流程。尚未在 SM-A5560 驗證 Samsung GameManagerService、鳴潮是否允許 intervention；Kotlin 實作尚未逐行審查，根目錄 LICENSE 未找到 | **最高優先級獨立實驗候選**：先唯讀檢查 `cmd game help/list-modes/list-configs`，確認 A55 是否支援，再用溫和 downscale 做單變因 A/B；只借鑑 CVar 分析／GC guard 概念，不直接複製程式碼 |
+| [Mobile WuWa-Config](https://github.com/Arglax/Mobile-WuWa-Config) | 鳴潮 3.7 的 Engine.ini／DeviceProfiles.ini 設定、裝置 profile 與 CVar 參考資料；可用來比對已知配置風險 | README 說明配置主要測試於 Dimensity 8300；相容性表列 Exynos 1380／2400，沒有 Exynos 1480／Xclipse 530 的 A55 實測。其 `forbidden_cvars.txt` 標示 V3.6，不能當成 3.7 的最新黑名單 | **只作 CVar 候選與結構參考**；不整份套用其他 SoC 設定，所有變更需以 3.7 Client.log 驗證 |
+| [Geilan63lan/Wuwa-Mobile-Config](https://github.com/Geilan63lan/Wuwa-Mobile-Config) | 個人整理的 3.7 All Devices／Snapdragon 分級設定，可供比對各品質層級差異 | 作者明確標記兩份配置是依相鄰層級推測重建、未驗證；All Devices 代表廣泛 GPU 類別，不代表 A55 專屬調校；沒有 SM-A5560 實測 | **不直接採用預設檔**；僅作差異比較，特別留意作者標記的未驗證值 |
+| [WuWa Tool Android](https://github.com/k4wai1/WuWa-Tool-Android) | Shizuku 管理鳴潮 INI、首次備份、設定檔套用與還原流程 | 作者標示目前 unmaintained，並推薦改用其他 patcher；主要是設定檔管理，不是即時 CPU／GPU 控制器 | **不採用**；備份／還原概念已由本專案既有安全規範涵蓋 |
+| [wuwa-tweaks](https://github.com/yazninja/wuwa-tweaks) | PC 版遊戲檔案備份與 Shader／Texture／Mesh 調整思路 | 專案提供 Windows／Linux／macOS 執行檔，README 沒有 Android 支援；PC 資產與 Android UE4 Vulkan 渲染路徑不可混用 | **不採用於 Android**；不移植 PC 資產修改或 FPS unlock 做法 |
+| [WuWaLab](https://github.com/Arglax/WuWaLab) | 無 | 官方 README 明確說明它不讀取遊戲檔案、不自動化遊戲、不連接遊戲伺服器，是離線伴侶工具 | **與效能目標無關** |
+
 | [RADV-Xclipse](https://github.com/JimVulkan/radv-xclipse) | Xclipse 530 專用 Mesa RADV Vulkan driver、driver 內 CPU／GPU frame-time profiling 開關、render-target compression 與 texture format 路徑 | README 明確說明套件供能從 ZIP 載入自訂 Vulkan driver 的 app（例如 Eden／Winlator）；不是替一般已安裝原生遊戲直接換 driver。A55 SM-A556B 曾有測試，但不能推定 SM-A5560／鳴潮相容；文件亦列出 GPU hang、重啟及 shader cache 相容風險 | **不安裝、不注入鳴潮**。只作為 Xclipse 530 GPU 架構與 profiling 概念參考 |
 | [Surface FPS Monitor](https://github.com/anlaki-py/fps-monitor) | Shizuku 讀 SurfaceFlinger TimeStats、500 ms 取樣、SurfaceView／BLAST layer 選擇與明確顯示 Idle／N/A | 專案作者的實測環境是 Xiaomi 12T／Android 15／HyperOS 2；Samsung A55 相容性未確認，且工具本身是懸浮 FPS 監控 | **只列為臨時外部驗收候選**；先用 ADB 原生 TimeStats 命令驗證 A55，不把 HUD 加回 WuWaAccelerator |
 | [GAMA](https://github.com/palincat/gama) | Shizuku 操作固定系統屬性、切換設定後還原、Samsung One UI 相容性回報 | 原始 README 明確使用 `setprop debug.hwui.renderer`，控制的是 Android HWUI renderer，不是鳴潮 UE4 Vulkan renderer；切換可能導致 System UI soft-crash | **不採用**；不能把 HWUI Vulkan 當成遊戲 Vulkan 切換 |
@@ -76,11 +83,13 @@
 
 ### 採用分級
 
+- **最高優先級待驗證**：WuWa Config Patcher 的 Android per-app Game Mode downscale。它是 Android WindowManager backbuffer resize，不是改全域螢幕解析度；必須先確認 A55 `cmd game` 能力、鳴潮 intervention 是否生效，再用獨立 A/B 測試。不可與 Engine.ini 變更同時進行。
+
 - **可採納的設計原則**：可信度／新鮮度檢查、事件狀態機概念、交易式寫入與回滾、控制器遲滯、外部 A/B 驗收。
 - **需 A55 實測後才能採用**：SurfaceFlinger／FrameTimeline 訊號、Game Mode、指定套件 ART 編譯、任何新的 SGPU 控制策略。
 - **不採用**：需要 Root／Magisk／PServer 的控制路徑、未驗證 CPU 核心綁定或 cpuset／uclamp／scheduler 寫入、Adreno 專用 GPU 節點、SurfaceFlinger 注入、關閉熱保護、清除 Samsung GOS 資料、強制清 RAM／殺背景程序。
 - **目前不新增功能**：這份研究紀錄只提供未來設計參考，不代表上述功能已寫入 App 或已在 A55 證明有效。
-- **額外排除項目**：RADV-Xclipse 只供能載入自訂 driver ZIP 的容器 App；GAMA 的 `debug.hwui.renderer` 只控制 HWUI；Surface FPS Monitor 只作外部驗收候選；Moha Lab 為 view-only 授權；EliteGaming 的高 FPS 增益宣稱缺少可重現證據。
+- **額外排除項目**：RADV-Xclipse 只供能載入自訂 driver ZIP 的容器 App；GAMA 的 `debug.hwui.renderer` 只控制 HWUI；Surface FPS Monitor 只作外部驗收候選；Moha Lab 為 view-only 授權；EliteGaming 的高 FPS 增益宣稱缺少可重現證據；WuWa 手機設定檔未有 A55 專屬實測，不可直接套用。
 
 ## 建置與測試
 
