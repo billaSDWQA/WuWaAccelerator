@@ -10,7 +10,7 @@ internal object GameModeParser {
     fun parse(output: String): GameModeSnapshot? {
         val current = Regex("""current\s+mode\s*:\s*([a-z0-9_-]+)""", RegexOption.IGNORE_CASE)
             .find(output)?.groupValues?.get(1)?.lowercase() ?: return null
-        val availableText = Regex("""available\s+game\s+modes\s*:\s*\\[([^]]*)]""", RegexOption.IGNORE_CASE)
+        val availableText = Regex("""available\s+game\s+modes\s*:\s*\[([^]]*)]""", RegexOption.IGNORE_CASE)
             .find(output)?.groupValues?.get(1) ?: return null
         val modes = availableText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
         return GameModeSnapshot(current, modes)
