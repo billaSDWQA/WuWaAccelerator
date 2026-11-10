@@ -46,9 +46,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
     private val systemQueryExecutor = Executors.newFixedThreadPool(2) { Thread(it, "WuWa-System-Query").apply { isDaemon = true } }
     private val telemetryMonitor = GpuTelemetryMonitor()
-    private val cpuTelemetryMonitor = CpuTelemetryMonitor()
-    private val gpuTemperatureMonitor = GpuTemperatureMonitor()
-    private val frameMonitor = SurfaceFlingerFrameMonitor()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -70,7 +67,6 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var foregroundCheckInFlight = false
     private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
     private var thermalCheckInFlight = false
-    private var hudActive = false
     private var gameForeground = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
@@ -108,7 +104,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
-        hudActive = false
         gameForeground = false
         boostActive = false
         unknownSamples = 0
@@ -130,7 +125,6 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
-        hudActive = false
         gameForeground = false
         stopGameTelemetry()
         val restored = restoreLocked()
@@ -149,24 +143,11 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun getStatus(): String = status
 
-    override fun setHudActive(active: Boolean) = synchronized(lock) {
-        hudActive = active
-        if (active && monitoring && gameForeground) startHudTelemetry()
-        else stopHudTelemetry()
-    }
-
-    override fun getTelemetrySnapshot(): String = listOf(
-        telemetryMonitor.displayText(),
-        cpuTelemetryMonitor.displayText(),
-        gpuTemperatureMonitor.displayText(),
-        frameMonitor.displayText()
-    ).joinToString("\n")
 
     override fun destroy() {
         synchronized(lock) {
             monitoring = false
-            hudActive = false
-            gameForeground = false
+                gameForeground = false
             future?.cancel(false)
             future = null
             restoreLocked()
@@ -243,7 +224,6 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (monitoring) {
                 gameForeground = true
                 telemetryMonitor.start()
-                if (hudActive) startHudTelemetry()
             }
         }
 
@@ -759,28 +739,12 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
 
-    private fun startHudTelemetry() {
-        cpuTelemetryMonitor.start()
-        gpuTemperatureMonitor.start()
-        frameMonitor.start()
-    }
-
-    private fun stopHudTelemetry() {
-        cpuTelemetryMonitor.stop()
-        gpuTemperatureMonitor.stop()
-        frameMonitor.stop()
-    }
-
     private fun stopGameTelemetry() {
         telemetryMonitor.stop()
-        stopHudTelemetry()
     }
 
     private fun shutdownGameTelemetry() {
         telemetryMonitor.shutdown()
-        cpuTelemetryMonitor.shutdown()
-        gpuTemperatureMonitor.shutdown()
-        frameMonitor.shutdown()
     }
 
     private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
