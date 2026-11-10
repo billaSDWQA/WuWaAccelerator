@@ -31,6 +31,50 @@
 - 外部工具無法保證修復遊戲引擎內部 Shader 編譯、資源載入或遊戲自身邏輯造成的卡頓。
 - 不保證零卡頓或固定 60 FPS；必須以實機幀時間結果判定。
 
+## 外部專案與技術研究（2026-11-10）
+
+本節記錄外部 Android 遊戲效能專案的實際適用性。**「值得研究」不等於「可直接安裝／移植」；README 的功能宣稱也不等於已在 SM-A5560 驗證。** 評估前提是本專案的兩個目標：畫面銜接順暢、減少幀時間尖峰與卡頓。
+
+### 已檢視專案
+
+| 專案 | 值得研究的部分 | 不可直接採用的原因 | 本專案決策 |
+|---|---|---|---|
+| [Uperf-Game-Turbo](https://github.com/yinwanxi/Uperf-Game-Turbo) | 事件驅動 Hint、HeavyLoad、SfLag／SfBoost、渲染開始／結束訊號、避免持續重負載時無限制升頻 | README 列出的 Android 支援範圍為 Android 6–12；安裝路徑以 Magisk 或已 Root 手動安裝為主；SfAnalysis 需要對 SurfaceFlinger 做 native 注入，OEM／Android 版本／SELinux 相容性風險高；未找到 Exynos 1480／SM-A5560 實測支援 | **只借鑑事件驅動控制概念**。不移植注入器、核心節點設定檔或 CPU 親和性寫入 |
+| [P.U.L.S.E.](https://github.com/keiretrogaming/pulse) | AutoTDP 閉環控制、目標幀率可達性判斷、CPU／GPU 控制協調、依負載與熱狀態調節而非固定拉滿 | 無 Root 控制依賴裝置內建的 `PServerBinder`；官方列出的實測裝置是 AYN／Retroid 掌機，沒有 Samsung A55；GPU 控制使用 Adreno power-level 機制，不可套用 Xclipse 530 | **借鑑閉環控制與「目標不可達時停止追逐」原則**。不移植 PServer、Adreno 節點或頻率表 |
+| [ApexTuner](https://github.com/skysyaz/apextuner) | Shell 能力分層、裝置節點探測、寫入前備份、交易式寫入、讀回與 rollback 的架構 | CPU／GPU sysfs 寫入明確需要 Root；文件列出的 Samsung Exynos 驗證型號為 2200／2400，並非 1480。檢視到的控制器在 read-back 不可讀時會回傳成功，這不足以滿足本專案嚴格的寫入驗證要求 | **只借鑑交易式備份／回滾架構**；不可照搬其權限判定、SoC 路徑或控制器實作 |
+| [FrameX-Android](https://github.com/MaheshSharan/FrameX-Android) | 以 SurfaceFlinger `--timestats` 取得呈現資料、讀取 ThermalService、Shizuku 權限邊界與診斷流程 | 主要是監控／HUD 工具，並包含背景程序管理、RAM heap compaction 等非本專案核心功能；SurfaceFlinger 呈現資料不是 UE4 內部 GPU render time；其「zero overhead」屬專案宣稱，未在 A55 獨立驗證 | **只借鑑外部驗收方法**，不增加常駐 HUD、RAM 清理或背景程序終止 |
+| [Project Zenith](https://github.com/Clide01/ProjectZenith) | Shizuku 操作能力回報、原生 Game Mode、指定 App 的 ART `speed-profile` 編譯、操作還原 | 通用系統工具；ART 編譯主要影響 DEX，不會直接編譯鳴潮 UE4 原生程式、Shader 或 PSO；動畫縮放主要影響 Android 系統 UI，不等於遊戲畫面幀率 | **Game Mode 與指定 App 編譯僅列為獨立實驗候選**，先驗證 One UI 及鳴潮的實際支援；不加入常駐加速流程 |
+| [HyperBoost Engine Pro](https://github.com/A-124/hyperboost-engine-pro) | Shizuku 能力回報、每遊戲設定、設定快照／還原、操作失敗回報 | 功能範圍廣，包含刷新率、渲染設定、背景控制與 HUD；README 宣稱不代表每個設定都在 A55 可用，具體命令與實機效果尚未逐項驗證 | **保留作為後續原始碼審查候選**；目前不移植未經驗證的設定 |
+| [GameCore](https://github.com/Dreamucxe/GameCore) | `Observed<T>` 明確表達讀值來源、精度與不可用原因；Profile 將 null 定義為不修改，並恢復修改前讀值 | 偏向裝置管理與資料呈現，不是針對 UE4／GPU 幀時間的直接加速器 | **採納資料可信度與還原語義的設計原則**，不引入其整套應用架構 |
+| [Game-Booster-v1](https://github.com/IrrelevantOnGit/Game-Booster-v1) | 可參考其 Kotlin App 分層與測試目錄 | README 自述解析度／FPS 滑桿在多數裝置上只是顯示值，AI 模型位置仍是空的；清理快取、終止背景程序沒有證據能改善鳴潮原生渲染卡頓 | **不採用效能調校做法** |
+| [ADB-Android-Optimizer](https://github.com/SchneeSchmitt/ADB-Android-Optimizer) | 可作為 ADB 指令分類與 Android ART 編譯方式的研究材料 | 全域 ART compile 可能增加耗時、發熱與儲存占用；HWUI／RenderEngine Vulkan 設定不會自動切換 UE4 Vulkan；熱狀態覆寫及清除 Samsung GOS 資料不適合本專案 | **不整包執行**；ART 只允許獨立、可回復、指定鳴潮套件的實驗 |
+| [Android 記憶體優化文章](https://github.com/jeanboydev/Android-ReadTheFuckingSourceCode/blob/master/article/android/basic/Android-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96-%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96.md) | 記憶體生命週期、避免不必要配置、先分析再調整的觀念 | 文章主要是 Android App／Java 記憶體管理；鳴潮還涉及 UE4 Native Memory、貼圖串流與 GPU 資源，不能用 Bitmap／GC 技巧直接解決 | **只保留記憶體壓力分析觀念**；不做強制 GC、RAM 清理或背景程序清除 |
+
+### 可轉化為本專案設計的原則
+
+1. **事件優先於盲目輪詢（研究方向）**：研究前景切換、GPU 負載突增、渲染提交延遲等事件是否能提供比固定頻率輪詢更及時的控制訊號。任何事件來源都必須驗證在 One UI／Android 17／鳴潮遊戲 Layer 上真的可用。
+2. **閉環控制而非固定拉滿**：將負載、實際 GPU 頻率、熱狀態與呈現間隔視為不同訊號；先判斷資料可信度，再決定是否調整。目標不可達或熱餘裕不足時，不應持續追逐高頻。
+3. **交易式寫入與安全回復**：寫入前保存原始值；寫入後必須讀回確認；驗證失敗則回滾。讀回不可用、來源不明或權限不足時，不可宣稱成功。
+4. **明確表示未知資料**：不可把讀取失敗、過期資料或不支援狀態轉成 0；控制器應 fail-safe。
+5. **記憶體壓力以證據判斷**：只有在 A/B 測試發現記憶體回收、zRAM／swap 或資源載入與幀時間尖峰有關時，才考慮對應策略；禁止把「空閒 RAM 越多越好」當成效能定律。
+6. **短時尖峰與長時熱穩態分開測試**：技能／角色切換等短時尖峰與 15–30 分鐘熱穩態是不同問題，必須分別量測。
+7. **外部量測不等於遊戲內部計時**：SurfaceFlinger／FrameTimeline 可提供呈現端證據，但不一定能辨識 UE4 的 CPU game thread、render thread、GPU 執行時間或 Shader 編譯原因。
+
+### 官方技術依據與限制
+
+- [Android 遊戲效能最佳化總覽](https://developer.android.com/games/optimize/overview)：AGI、Perfetto、ADPF、Game Mode、Memory Advice 等工具的定位。
+- [Android Dynamic Performance Framework（ADPF）](https://developer.android.com/games/optimize/adpf)：Thermal API、Performance Hint、Game Mode／Game State 是遊戲與系統互動的正式機制；通常需要遊戲本身整合，外部加速器不能假裝替鳴潮呼叫其內部工作階段。
+- [Android Slow Sessions](https://developer.android.com/games/optimize/vitals/slow-session)：慢影格可能來自 CPU、GPU、熱降頻或刷新率／幀率不匹配；不能只看 GPU utilization。
+- [Android Frame Pacing／Swappy](https://developer.android.com/games/sdk/frame-pacing)：UE 4.25+ 可整合 Android Frame Pacing，但是否啟用及其遊戲內部設定需要遊戲端支援；外部 App 無法直接把 Swappy 注入鳴潮。
+- [Perfetto FrameTimeline](https://github.com/google/perfetto/blob/main/docs/data-sources/frametimeline.md)：Android 12+ 可分析 jank 與預期／實際時間軸；文件目前註明 SurfaceView 尚不支援，因此必須先確認鳴潮實際 layer 類型，不能預設資料完整。
+
+### 採用分級
+
+- **可採納的設計原則**：可信度／新鮮度檢查、事件狀態機概念、交易式寫入與回滾、控制器遲滯、外部 A/B 驗收。
+- **需 A55 實測後才能採用**：SurfaceFlinger／FrameTimeline 訊號、Game Mode、指定套件 ART 編譯、任何新的 SGPU 控制策略。
+- **不採用**：需要 Root／Magisk／PServer 的控制路徑、未驗證 CPU 核心綁定或 cpuset／uclamp／scheduler 寫入、Adreno 專用 GPU 節點、SurfaceFlinger 注入、關閉熱保護、清除 Samsung GOS 資料、強制清 RAM／殺背景程序。
+- **目前不新增功能**：這份研究紀錄只提供未來設計參考，不代表上述功能已寫入 App 或已在 A55 證明有效。
+
 ## 建置與測試
 
 本機完整驗證：
@@ -39,7 +83,7 @@
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-CI 會執行單元測試、Android Lint、Debug 與 Release APK 建置。請以最新 commit 對應的 GitHub Actions 結果為準，不可用舊版本綠燈代替。
+CI 會執行單元測試、Android Lint、Debug／Release APK 建置。請以最新 commit 對應的 GitHub Actions 結果為準，不可用舊版本綠燈代替。
 
 ## A55 實機驗收
 
