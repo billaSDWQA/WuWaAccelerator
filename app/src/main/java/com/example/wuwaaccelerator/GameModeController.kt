@@ -59,7 +59,12 @@ internal class GameModeController(
         if (original != "standard" && original != "performance") {
             return GameModeResult(false, "Game Mode 備份無效；保留檔案，不盲目還原")
         }
-        if (readSnapshot()?.currentMode != original) {
+        val current = readSnapshot()?.currentMode
+            ?: return GameModeResult(false, "無法讀回目前 Game Mode；保留備份，不盲目還原")
+        if (current != original && current != "performance") {
+            return GameModeResult(false, "偵測到 Game Mode 已被外部改為 $current；不覆蓋外部設定，備份保留")
+        }
+        if (current == "performance") {
             if (runCommand(listOf("cmd", "game", "mode", original, gamePackage)) == null) {
                 return GameModeResult(false, "還原 Game Mode 至 $original 失敗；備份保留")
             }

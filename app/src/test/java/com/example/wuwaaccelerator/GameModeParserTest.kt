@@ -53,6 +53,25 @@ class GameModeParserTest {
         assertEquals("standard", current)
         dir.deleteRecursively()
     }
+    @Test fun doesNotOverwriteModeChangedExternally() {
+        val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
+        var current = "standard"
+        val runner: (List<String>, Long) -> String? = { args, _ ->
+            when (args.getOrNull(2)) {
+                "list-modes" -> "current mode: $current, available game modes: [1, 2]"
+                "mode" -> { current = args[3]; "ok" }
+                else -> null
+            }
+        }
+        val controller = GameModeController("game.pkg", File(dir, "mode-state"), runner = runner)
+        assertTrue(controller.applyPerformance().success)
+        current = "custom"
+        assertFalse(controller.restore().success)
+        assertEquals("custom", current)
+        assertTrue(File(dir, "mode-state").exists())
+        dir.deleteRecursively()
+    }
+
     @Test fun alreadyActivePerformanceModeIsNotClaimedAsOurChange() {
         val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
         val runner: (List<String>, Long) -> String? = { _, _ -> "current mode: performance, available game modes: [1, 2]" }
