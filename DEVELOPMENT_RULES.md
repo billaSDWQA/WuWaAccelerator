@@ -154,6 +154,12 @@
 - Game-Booster-v1、ADB-Android-Optimizer：不採用清 RAM、殺程序、HWUI 當成 UE Vulkan 加速或熱保護覆寫等做法。
 - Android 官方文件：優先參照 ADPF、Frame Pacing／Swappy、Perfetto／FrameTimeline；必須注意這些 API 有些需要遊戲引擎端整合，外部 App 不具備等價控制能力。
 
+- RADV-Xclipse：雖然列出 Xclipse 530／Exynos 1480 與 Galaxy A55 測試，但套件供能載入自訂 Vulkan driver ZIP 的容器 App 使用，不可假設能替原生鳴潮更換 driver；不得在未確認載入路徑與 GPU hang 風險前嘗試。
+- Surface FPS Monitor：SurfaceFlinger TimeStats／Shizuku 500 ms 取樣可作外部驗收參考；原作者測試於 Xiaomi 12T／Android 15，A55 尚未驗證，不能把平均 FPS 當 UE4 內部 GPU 時間。
+- GAMA：`debug.hwui.renderer` 是 Android HWUI renderer 設定，不是 UE4 Vulkan renderer 切換；不得用它宣稱鳴潮改用 Vulkan，也要考慮 System UI 重啟／崩潰風險。
+- Moha Lab Optimization：LICENSE 是 view-only，不可複製、修改、建置或散布；只能記錄公開描述，不能移植程式碼。
+- EliteGaming：單一 commit 與未附可重現測試的高 FPS 增益宣稱不構成證據；Aggressive LMK／殺背景 App 不納入本專案。
+
 ## 開發前檢查紀錄模板
 
 每次開始一項新工作時，先建立並填寫：
