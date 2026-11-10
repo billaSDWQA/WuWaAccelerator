@@ -20,6 +20,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 - 移除懸浮 HUD、CPU 使用率／頻率監控、GPU 溫度顯示及 SurfaceFlinger FPS／1% Low 診斷介面。
 - App 只保留「啟動順滑加速」與「停止並還原」兩個操作。
+- 前景監測只用於辨識鳴潮離開前景並安全還原；Shell `dumpsys activity` watchdog 間隔設為 5 秒，以降低加速器自身喚醒頻率。離開前景後的還原延遲最長約一個輪詢週期；此調整只降低 App 背景開銷，不代表能直接降低遊戲渲染功耗或機身溫度。
 - App 使用 Android GameManagerService 已提供給鳴潮的 Performance mode；另在 OEM profile 未被自訂、原始 game_overlay 為 null 時，嘗試套用 60 FPS throttling 以改善未 pacing 遊戲的呈現規律性。
 - 切換前持久化保存原 Game Mode，切換後重新查詢確認；停止服務時還原原模式並再次讀回驗證。還原失敗時保留備份。
 - 不寫入 Game Mode downscale；只在 OEM profile 明確為 scaling=1.0、Use Angle=false、Fps 空白且 game_overlay 原始值為 null 時，套用可回復的 Performance mode 60 FPS intervention。既有自訂設定一律不覆寫。不修改 GPU／CPU sysfs、governor、cpuset、uclamp、scheduler、電壓或 thermal 節點。
