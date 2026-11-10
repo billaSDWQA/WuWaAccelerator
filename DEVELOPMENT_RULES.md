@@ -212,3 +212,12 @@
 - 本專案只考慮 60 FPS，不套用 downscale。只在 device_config game_overlay 原始值為 null，且 cmd game list-configs 顯示 Performance mode scaling=1.0、Use Angle=false、Fps 空白時，才套用 cmd game set --mode 2 --fps 60。
 - 寫入前保存並校驗 OEM 預設快照；寫入後必須讀回 Fps=60 且 scaling/angle 不變。停止、遊戲離開前景或錯誤時執行 cmd game reset --mode 2，讀回必須與原快照相同；外部修改時拒絕覆蓋並保留備份。
 - AOSP 命令語義依 Android GameManagerShellCommand；實際 One UI 9 行為、鳴潮是否屬未 pacing 遊戲及幀時間收益仍待 SM-A5560 實測。不得把 CI 通過當作實機有效。
+
+### 2026-11-10 60Hz 顯示刷新率試驗（1.0.4）
+
+- 使用者已確認鳴潮遊戲內 FPS 設定為 60。僅可把 Android 顯示刷新率暫時對齊 60Hz 作為顯示面板／顯示管線功耗的獨立 A/B 候選，不得宣稱它減少 UE4 Vulkan GPU 渲染工作。
+- 只在鳴潮實際進入前景後探測 `settings get system min_refresh_rate` 與 `settings get system peak_refresh_rate`。兩者都必須可讀且為有效數值，且 peak 高於 60Hz，才可考慮寫入；不支援、`null`、格式錯誤或命令失敗時 fail-safe 略過。
+- 寫入前備份 Build.FINGERPRINT 與兩個原始值；先寫 min=60.0 再寫 peak=60.0，兩者分別讀回驗證。任何失敗均嘗試回滾，讀回不符時保留備份。
+- 停止服務、鳴潮離開前景、正常 destroy 時還原；只有目前值仍等於本程式套用的 60Hz 或原始值時才可還原。外部改動、韌體指紋變更、備份校驗失敗時拒絕盲目覆寫並保留備份。服務崩潰／斷電時備份保留，下一次啟動先嘗試還原。
+- 不修改遊戲 FPS、解析度、畫質、CPU/GPU 頻率、GOS 或 thermal；顯示刷新率限制可能影響觸控／顯示體感。沒有 SM-A5560 實測前，只能稱「已實作待驗證」，不能宣稱降低溫度或功耗。
+- A/B 測試需固定鳴潮 60 FPS、畫質、亮度、場景、網路、電量／充電狀態與起始溫度；分別測試 120Hz 基準與 60Hz 候選，每組至少三次 15–30 分鐘，記錄電池／SoC 溫度、耗電、SurfaceFlinger 呈現間隔及觸控體感。若 60Hz 導致畫面／觸控不適或呈現間隔惡化，立即停止並還原。
