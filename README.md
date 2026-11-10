@@ -50,6 +50,12 @@
 | [ADB-Android-Optimizer](https://github.com/SchneeSchmitt/ADB-Android-Optimizer) | 可作為 ADB 指令分類與 Android ART 編譯方式的研究材料 | 全域 ART compile 可能增加耗時、發熱與儲存占用；HWUI／RenderEngine Vulkan 設定不會自動切換 UE4 Vulkan；熱狀態覆寫及清除 Samsung GOS 資料不適合本專案 | **不整包執行**；ART 只允許獨立、可回復、指定鳴潮套件的實驗 |
 | [Android 記憶體優化文章](https://github.com/jeanboydev/Android-ReadTheFuckingSourceCode/blob/master/article/android/basic/Android-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96-%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96.md) | 記憶體生命週期、避免不必要配置、先分析再調整的觀念 | 文章主要是 Android App／Java 記憶體管理；鳴潮還涉及 UE4 Native Memory、貼圖串流與 GPU 資源，不能用 Bitmap／GC 技巧直接解決 | **只保留記憶體壓力分析觀念**；不做強制 GC、RAM 清理或背景程序清除 |
 
+| [RADV-Xclipse](https://github.com/JimVulkan/radv-xclipse) | Xclipse 530 專用 Mesa RADV Vulkan driver、driver 內 CPU／GPU frame-time profiling 開關、render-target compression 與 texture format 路徑 | README 明確說明套件供能從 ZIP 載入自訂 Vulkan driver 的 app（例如 Eden／Winlator）；不是替一般已安裝原生遊戲直接換 driver。A55 SM-A556B 曾有測試，但不能推定 SM-A5560／鳴潮相容；文件亦列出 GPU hang、重啟及 shader cache 相容風險 | **不安裝、不注入鳴潮**。只作為 Xclipse 530 GPU 架構與 profiling 概念參考 |
+| [Surface FPS Monitor](https://github.com/anlaki-py/fps-monitor) | Shizuku 讀 SurfaceFlinger TimeStats、500 ms 取樣、SurfaceView／BLAST layer 選擇與明確顯示 Idle／N/A | 專案作者的實測環境是 Xiaomi 12T／Android 15／HyperOS 2；Samsung A55 相容性未確認，且工具本身是懸浮 FPS 監控 | **只列為臨時外部驗收候選**；先用 ADB 原生 TimeStats 命令驗證 A55，不把 HUD 加回 WuWaAccelerator |
+| [GAMA](https://github.com/palincat/gama) | Shizuku 操作固定系統屬性、切換設定後還原、Samsung One UI 相容性回報 | 原始 README 明確使用 `setprop debug.hwui.renderer`，控制的是 Android HWUI renderer，不是鳴潮 UE4 Vulkan renderer；切換可能導致 System UI soft-crash | **不採用**；不能把 HWUI Vulkan 當成遊戲 Vulkan 切換 |
+| [Moha Lab Optimization](https://github.com/7Mohan/mohalaboptimazation) | README 提及 per-game Game Mode、resolution downscale、FPS override、ART 編譯與還原原值 | 專案 LICENSE 明確標示 view-only，禁止複製、修改、建置或再散布；Root 模式與 Shizuku 能力不同，具體命令及 A55 實測未獨立核實 | **不複製程式碼、不安裝未驗證 tweak**；只把公開功能描述視為待驗證研究線索 |
+| [EliteGaming](https://github.com/DivyanshNagda/Elitegaming) | Shizuku 控制顯示解析度／DPI，可能作為降低像素填充率的實驗線索 | Repository 只有單一 commit；README 宣稱「最高 +80% FPS」但沒有可重現的 A55 數據，另含 aggressive LMK 與預先殺 App | **不採用其 boost 宣稱或清理功能**；解析度只能作獨立、可還原的畫質／GPU 負載 A/B 實驗，不當成直接加速方案 |
+
 ### 可轉化為本專案設計的原則
 
 1. **事件優先於盲目輪詢（研究方向）**：研究前景切換、GPU 負載突增、渲染提交延遲等事件是否能提供比固定頻率輪詢更及時的控制訊號。任何事件來源都必須驗證在 One UI／Android 17／鳴潮遊戲 Layer 上真的可用。
@@ -74,6 +80,7 @@
 - **需 A55 實測後才能採用**：SurfaceFlinger／FrameTimeline 訊號、Game Mode、指定套件 ART 編譯、任何新的 SGPU 控制策略。
 - **不採用**：需要 Root／Magisk／PServer 的控制路徑、未驗證 CPU 核心綁定或 cpuset／uclamp／scheduler 寫入、Adreno 專用 GPU 節點、SurfaceFlinger 注入、關閉熱保護、清除 Samsung GOS 資料、強制清 RAM／殺背景程序。
 - **目前不新增功能**：這份研究紀錄只提供未來設計參考，不代表上述功能已寫入 App 或已在 A55 證明有效。
+- **額外排除項目**：RADV-Xclipse 只供能載入自訂 driver ZIP 的容器 App；GAMA 的 `debug.hwui.renderer` 只控制 HWUI；Surface FPS Monitor 只作外部驗收候選；Moha Lab 為 view-only 授權；EliteGaming 的高 FPS 增益宣稱缺少可重現證據。
 
 ## 建置與測試
 
