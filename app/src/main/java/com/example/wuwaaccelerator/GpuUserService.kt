@@ -72,6 +72,8 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var thermalCheckInFlight = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
+    private var gameModeWatchdogFuture: ScheduledFuture<*>? = null
+    private var gameSeenForeground = false
 
     private data class BackupState(
         val fingerprint: String,
@@ -108,12 +110,17 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
         monitoring = true
         boostActive = false
+        gameSeenForeground = false
+        scheduleGameModeWatchdogLocked()
         status = applied.message
         true
     }
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
+        gameModeWatchdogFuture?.cancel(false)
+        gameModeWatchdogFuture = null
+        gameSeenForeground = false
         stopGameTelemetry()
         val gpuRestored = !hasBackup() || restoreLocked()
         val modeRestored = gameModeController.restore()
@@ -138,6 +145,8 @@ class GpuUserService : IAcceleratorService.Stub() {
             monitoring = false
             future?.cancel(false)
             future = null
+            gameModeWatchdogFuture?.cancel(false)
+            gameModeWatchdogFuture = null
             if (hasBackup()) restoreLocked()
             gameModeController.restore()
             shutdownGameTelemetry()
@@ -145,6 +154,35 @@ class GpuUserService : IAcceleratorService.Stub() {
             systemQueryExecutor.shutdownNow()
         }
         System.exit(0)
+    }
+
+    private fun scheduleGameModeWatchdogLocked() {
+        gameModeWatchdogFuture?.cancel(false)
+        gameModeWatchdogFuture = scheduler.scheduleWithFixedDelay(
+            {
+                val foreground = readForeground()
+                synchronized(lock) {
+                    if (!monitoring) return@synchronized
+                    if (foreground.packageName == GAME) {
+                        gameSeenForeground = true
+                    } else if (gameSeenForeground && foreground.packageName != null) {
+                        monitoring = false
+                        gameSeenForeground = false
+                        val restored = gameModeController.restore()
+                        status = if (restored.success) {
+                            "鳴潮已離開前景；${restored.message}"
+                        } else {
+                            "鳴潮已離開前景，但 Game Mode 還原未完成；備份保留：${restored.message}"
+                        }
+                        gameModeWatchdogFuture?.cancel(false)
+                        gameModeWatchdogFuture = null
+                    }
+                }
+            },
+            0L,
+            2000L,
+            TimeUnit.MILLISECONDS
+        )
     }
 
     private fun scheduleLocked(delay: Long) {
