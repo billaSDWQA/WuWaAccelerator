@@ -63,7 +63,7 @@ jobs:
       - name: Upload debug and release APKs with hashes
         uses: actions/upload-artifact@v4
         with:
-          name: WuWaSmoothAccelerator-1.0.3-apks
+          name: WuWaSmoothAccelerator-1.0.4-apks
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
