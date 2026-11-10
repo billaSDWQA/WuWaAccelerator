@@ -1,4 +1,4 @@
-# WuWa Smooth Accelerator
+# WuWa Smooth Accelerator 1.0.2
 
 **目標只有兩件事：畫面銜接順暢、減少遊戲卡頓。**
 
