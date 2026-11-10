@@ -4,7 +4,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 internal data class GameModeResult(val success: Boolean, val message: String)
-internal data class GameModeSnapshot(val currentMode: String, val availableModes: Set<Int>)
+internal data class GameModeSnapshot(val currentMode: String, val availableModes: Set<String>)
 
 internal object GameModeParser {
     fun parse(output: String): GameModeSnapshot? {
@@ -12,7 +12,7 @@ internal object GameModeParser {
             .find(output)?.groupValues?.get(1)?.lowercase() ?: return null
         val availableText = Regex("""available\s+game\s+modes\s*:\s*\[([^]]*)]""", RegexOption.IGNORE_CASE)
             .find(output)?.groupValues?.get(1) ?: return null
-        val modes = availableText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+        val modes = availableText.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
         return GameModeSnapshot(current, modes)
     }
 }
@@ -30,7 +30,7 @@ internal class GameModeController(
         }
         val snapshot = readSnapshot()
             ?: return GameModeResult(false, "無法讀取鳴潮 Game Mode；未變更設定")
-        if (2 !in snapshot.availableModes) {
+        if ("performance" !in snapshot.availableModes) {
             return GameModeResult(false, "裝置未向鳴潮提供 Performance mode；未變更設定")
         }
         if (snapshot.currentMode == "performance") {
