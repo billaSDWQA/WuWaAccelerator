@@ -259,7 +259,10 @@ internal class GpuTelemetryCollector(
             else if (values.size != it.split(Regex("\\s+")).size) null
             else values.joinToString(" ")
         }
-        val (load, loadSources) = readGpuLoads()
+        val (load, loadSources) = readGpuLoads(
+            utilizationSource,
+            availableUtilizationSources
+        )
 
         return GpuTelemetrySnapshot(
             capturedAtElapsedMs = clockMs(),
@@ -276,7 +279,10 @@ internal class GpuTelemetryCollector(
         )
     }
 
-    private fun readGpuLoads(): Pair<GpuTelemetryMetric, List<GpuTelemetryMetric>> {
+    private fun readGpuLoads(
+        utilizationSource: GpuTelemetryMetric?,
+        availableUtilizationSources: GpuTelemetryMetric?
+    ): Pair<GpuTelemetryMetric, List<GpuTelemetryMetric>> {
         val readings = loadCandidates.map { path ->
             readMetric(path, "%") { raw ->
                 if (path == GpuSysfsPaths.CURRENT_UTILIZATION) {
@@ -286,7 +292,29 @@ internal class GpuTelemetryCollector(
                 }
             }
         }
-        val valid = readings.filter { metric ->
+        val advertisedSources = availableUtilizationSources
+            ?.takeIf { it.error == null }
+            ?.normalizedValue
+            ?.split(Regex("\\s+"))
+            ?.toSet()
+            .orEmpty()
+        val jiffiesVerified =
+            utilizationSource?.error == null &&
+                utilizationSource?.normalizedValue == "jiffies" &&
+                "jiffies" in advertisedSources
+
+        // current_utilization is valid only when the driver confirms jiffies mode.
+        // An unverified value must not mask another usable load source later in the list.
+        val diagnosticReadings = readings.map { metric ->
+            if (metric.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION &&
+                metric.error == null && !jiffiesVerified
+            ) {
+                metric.copy(error = "utilization_source 未驗證 jiffies；忽略此來源並檢查其他負載節點")
+            } else {
+                metric
+            }
+        }
+        val valid = diagnosticReadings.filter { metric ->
             val value = metric.normalizedValue?.toIntOrNull()
             metric.error == null && value != null && value in 0..100
         }
