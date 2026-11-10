@@ -26,6 +26,9 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 - 不寫入 Game Mode downscale；只在 OEM profile 明確為 scaling=1.0、Use Angle=false、Fps 空白且 game_overlay 原始值為 null 時，套用可回復的 Performance mode 60 FPS intervention。既有自訂設定一律不覆寫。不修改 GPU／CPU sysfs、governor、cpuset、uclamp、scheduler、電壓或 thermal 節點。
 - SGPU `min_freq` 在目標韌體上是 root:root 0644，Shell UID 2000 無寫入權限；舊 GPU 控制路徑不再作為啟動加速的主路徑。
 
+- **試驗性 60Hz 顯示策略（1.0.4）**：鳴潮設定為 60 FPS 時，僅在鳴潮進入前景後，探測 Android system settings 的 min_refresh_rate／peak_refresh_rate。只有兩個值均可讀、格式有效且目前 peak 高於 60Hz 時，才保存原始值並嘗試將兩者設為 60.0；寫入後逐項讀回驗證。停止服務、鳴潮離開前景或服務正常銷毀時還原，還原失敗保留備份；發現外部修改則拒絕覆蓋。若 Samsung 韌體不支援這些設定、讀取失敗或寫入遭拒，會略過／回報失敗，不碰其他節點。
+- 這項策略只降低顯示更新率，不降低遊戲設定的 60 FPS、不改解析度／畫質，也不控制 UE4 Vulkan 的渲染工作。可能降低 OLED 面板／顯示管線功耗，但**不能據此推論 GPU 渲染功耗會下降或手機一定降溫**；亦可能影響觸控／顯示體感。效果必須在 SM-A5560 做相同場景 A/B 實測。
+
 ## 效能驗收目標
 
 本專案不以平均 FPS 單一數字作為成功標準。主要驗收：
