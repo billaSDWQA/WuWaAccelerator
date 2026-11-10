@@ -9,9 +9,16 @@ import org.junit.Test
 
 class GameModeParserTest {
     @Test fun parsesPerformanceModeAndAvailableModes() {
-        val parsed = GameModeParser.parse("com.kurogame.wutheringwaves.global current mode: performance, available game modes: [1, 2]")
+        val parsed = GameModeParser.parse("com.kurogame.wutheringwaves.global current mode: performance, available game modes: [standard, performance]")
         assertEquals("performance", parsed?.currentMode)
-        assertEquals(setOf(1, 2), parsed?.availableModes)
+        assertEquals(setOf("standard", "performance"), parsed?.availableModes)
+    }
+    @Test fun parsesA55SymbolicModeOutputAcrossWrappedLines() {
+        val output = """com.kurogame.wutheringwaves.global current mode: performance,
+            available game modes: [standard, performance]"""
+        val parsed = GameModeParser.parse(output)
+        assertEquals("performance", parsed?.currentMode)
+        assertEquals(setOf("standard", "performance"), parsed?.availableModes)
     }
     @Test fun parsesStandardMode() {
         assertEquals("standard", GameModeParser.parse("current mode: standard, available game modes: [1, 2]")?.currentMode)
@@ -45,7 +52,7 @@ class GameModeParserTest {
         val dir = Files.createTempDirectory("wuwa-game-mode").toFile()
         var current = "standard"
         val runner: (List<String>, Long) -> String? = { args, _ ->
-            if (args.getOrNull(2) == "list-modes") "current mode: $current, available game modes: [1]"
+            if (args.getOrNull(2) == "list-modes") "current mode: $current, available game modes: [standard]"
             else { current = args.getOrNull(3) ?: current; "ok" }
         }
         val result = GameModeController("game.pkg", File(dir, "mode-state"), runner = runner).applyPerformance()
