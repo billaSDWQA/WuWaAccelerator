@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - feature/1.0.0-full-accelerator
   pull_request:
     branches:
       - main
