@@ -232,15 +232,12 @@ internal class GpuLoadSampler(
         }
     private val latest = AtomicReference(GpuTelemetrySnapshot.empty())
 
-    @Volatile
-    private var running = false
 
     private var future: ScheduledFuture<*>? = null
 
     @Synchronized
     fun start() {
         if (future?.isDone == false && future?.isCancelled == false) return
-        running = true
         future = executor.scheduleWithFixedDelay(
             { collectOnce() },
             0L,
@@ -251,7 +248,6 @@ internal class GpuLoadSampler(
 
     @Synchronized
     fun stop() {
-        running = false
         future?.cancel(false)
         future = null
     }
