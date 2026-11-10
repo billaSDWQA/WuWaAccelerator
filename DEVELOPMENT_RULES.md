@@ -85,6 +85,16 @@
 - 需要觀察短時間尖峰及至少 15–30 分鐘長時間熱穩態；記錄平均 FPS、1% Low、frame-time／呈現間隔分布、掉幀、頻率與溫度。
 - 若缺乏可用資料，結論應為「尚不能判定」，並列出下一個最小驗證步驟。
 
+## 5A. 幀時間與漏幀率量化驗收（強制）
+
+- 60 FPS 的目標幀預算為 16.67 ms；平均 FPS 不可代替幀時間分布。
+- A55 實機 A/B 測試必須盡可能選取鳴潮自身 SurfaceFlinger Layer，記錄 totalFrames、droppedFrames 及 presentToPresent histogram。
+- 專案漏幀驗收目標為 droppedFrames / totalFrames <= 1.0%。若系統未提供欄位、Layer 無法確認或資料不完整，必須標示 N/A／不可判定，不可當成 0% 或通過。
+- 同時比較 P50／P90／P95／P99 呈現間隔，以及大於目標幀預算 1.5 倍的長間隔比例；這些是呈現端穩定性指標，不可冒稱 UE4 內部 GPU／CPU Frame Time。
+- 建議基準與候選設定各至少三次配對測試，每次 15–30 分鐘；固定遊戲版本、畫質、路線、刷新率、電量／充電狀態與起始溫度。Game Mode、INI 或 GPU 控制策略一次只改一項。
+- tools/frame_pacing/measure_timestats.py 是外部 ADB 驗收工具，不屬於 App 常駐監控；需保留 raw dump 與 JSON 報告。正確 Layer 未匹配時不得使用其他 Layer 或螢幕刷新率代替。
+- SurfaceFlinger droppedFrames／呈現間隔不能完整定位 UE4 Game Thread、Render Thread、Shader compilation 或 GPU execution 的內部原因；根因仍需結合 Perfetto／AGI、遊戲日誌及場景 A/B 分析。
+
 ## 6. 測試與交付門檻
 
 每次修改依影響範圍執行：

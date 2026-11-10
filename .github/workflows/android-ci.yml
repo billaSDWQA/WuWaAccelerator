@@ -36,6 +36,9 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Run frame-pacing tool tests
+        run: python3 -m unittest discover -s tools/frame_pacing -p 'test_*.py' -v
+
       - name: Run unit tests
         run: bash ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
 
