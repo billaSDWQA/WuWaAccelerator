@@ -26,18 +26,22 @@ class GameFpsInterventionControllerTest {
     @Test fun applies60FpsAndRestoresOemDefault() {
         val d = Files.createTempDirectory("wuwa-fps").toFile()
         var fps = ""
+        var setArgs: List<String>? = null
+        var resetArgs: List<String>? = null
         val runner: (List<String>, Long) -> String? = { a, _ ->
             when {
                 a.firstOrNull() == "device_config" -> "null"
                 a.getOrNull(2) == "list-configs" -> config(fps)
-                a.getOrNull(2) == "set" -> { fps = "60"; "ok" }
-                a.getOrNull(2) == "reset" -> { fps = ""; "ok" }
+                a.getOrNull(2) == "set" -> { setArgs = a; fps = "60"; "ok" }
+                a.getOrNull(2) == "reset" -> { resetArgs = a; fps = ""; "ok" }
                 else -> null
             }
         }
         val c = GameFpsInterventionController("game.pkg", File(d, "state"), runner = runner)
         assertTrue(c.apply().applied); assertEquals("60", fps)
+        assertEquals(listOf("cmd", "game", "set", "--mode", "2", "--fps", "60", "game.pkg"), setArgs)
         assertTrue(c.restore().success); assertEquals("", fps)
+        assertEquals(listOf("cmd", "game", "reset", "--mode", "2", "game.pkg"), resetArgs)
         assertFalse(File(d, "state").exists()); d.deleteRecursively()
     }
 
