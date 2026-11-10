@@ -172,7 +172,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         // Foreground checks are shell-heavy; a 5 s cadence reduces wakeups while
         // keeping game-exit restoration bounded to one polling interval.
         gameModeWatchdogFuture?.cancel(false)
-        gameModeWatchdogFuture?.cancel(false)
         gameModeWatchdogFuture = scheduler.scheduleWithFixedDelay(
             {
                 val foreground = readForeground()
