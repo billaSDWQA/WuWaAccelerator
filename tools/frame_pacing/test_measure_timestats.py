@@ -35,6 +35,17 @@ class TimeStatsParserTests(unittest.TestCase):
         self.assertEqual(10, result["long_gap_interval_count"])
         self.assertEqual(1.0, result["long_gap_interval_percent"])
 
+    def test_accepts_aosp_present2present_histogram_label(self):
+        block = """layerName = Game
+totalFrames = 100
+droppedFrames = 1
+present2present histogram is as below:
+16ms=90 33ms=10
+"""
+        layer = parse_layer(block)
+        self.assertEqual({16: 90, 33: 10}, layer["present_to_present_histogram_ms"])
+        self.assertEqual(33, layer["p99_present_to_present_ms"])
+
     def test_returns_no_layer_when_package_is_absent(self):
         self.assertEqual([], select_layers(SAMPLE, "com.example.missing"))
 

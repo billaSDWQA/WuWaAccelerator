@@ -33,6 +33,8 @@ def parse_histogram(block: str) -> dict[int, int]:
     if not marker:
         marker = re.search(r"present_to_present histogram is as below:\s*", block, re.I)
     if not marker:
+        marker = re.search(r"present2present histogram is as below:\s*", block, re.I)
+    if not marker:
         return {}
     tail = re.split(r"\n\s*[A-Za-z][A-Za-z0-9_ ]+\s+(?:histogram|is as below)",
                     block[marker.end():], maxsplit=1)[0]
