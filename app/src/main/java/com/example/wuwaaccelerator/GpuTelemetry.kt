@@ -319,7 +319,7 @@ internal class GpuTelemetryCollector(
             metric.error == null && value != null && value in 0..100
         }
         if (valid.isEmpty()) {
-            val firstUnparsed = readings.firstOrNull { it.rawValue != null }
+            val firstUnparsed = diagnosticReadings.firstOrNull { it.rawValue != null }
             val unavailable = firstUnparsed ?: GpuTelemetryMetric(
                 sourcePath = loadCandidates.joinToString(", "),
                 rawValue = null,
