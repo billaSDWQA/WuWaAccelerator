@@ -40,7 +40,7 @@
         android:id="@+id/btn_stop"
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:text="停止並還原 GPU 設定"
+        android:text="停止並還原遊戲模式"
         android:textSize="16sp" />
 
 </LinearLayout>

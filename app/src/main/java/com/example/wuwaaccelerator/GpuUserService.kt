@@ -52,6 +52,10 @@ class GpuUserService : IAcceleratorService.Stub() {
     private val foregroundDump = File(directory, "foreground.txt")
     private val thermalDump = File(directory, "thermal.txt")
     private val minFile = File(MIN_NODE)
+    private val gameModeController = GameModeController(
+        gamePackage = GAME,
+        stateFile = File(directory, "game-mode-state")
+    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
@@ -95,53 +99,33 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "不支援裝置：${Build.MANUFACTURER} ${Build.MODEL}"
             return@synchronized false
         }
-        // A readable sysfs node is not necessarily writable by Shizuku's shell UID.
-        // Fail before starting pollers or creating a backup when the process access
-        // check already proves that this process cannot write the node. The later
-        // write and read-back remain authoritative because this preflight cannot
-        // guarantee SELinux access.
-        if (!GpuWriteAccessPolicy.canAttemptWrite(uid, SHELL_UID, ROOT_UID, minFile.canWrite())) {
-            status = "目前韌體不允許 Shell UID 2000 寫入 SGPU min_freq；未啟動控制器、未建立備份，也未修改 GPU"
+        // SGPU sysfs is root-owned on this firmware. Use only the
+        // device-advertised Game Mode; never write downscale/FPS overrides.
+        val applied = gameModeController.applyPerformance()
+        if (!applied.success) {
+            status = applied.message
             return@synchronized false
         }
-
-        val minimum = readMin()
-        if (minimum == null || !GpuFrequencyPolicy.isValid(minimum)) {
-            status = "無法讀取或驗證 $MIN_NODE；未修改 GPU"
-            return@synchronized false
-        }
-
         monitoring = true
         boostActive = false
-        unknownSamples = 0
-        exitSamples = 0
-        thermalStatus = null
-        lastThermalSampleAtMs = 0L
-        lastForegroundCheckAtMs = 0L
-        lastForegroundResultAtMs = 0L
-        lastProcessedForegroundResultAtMs = 0L
-        foregroundCheckInFlight = false
-        thermalCheckInFlight = false
-        cachedForegroundResult = ForegroundResult(null, "尚未偵測")
-        adaptiveHysteresis.reset()
-        scheduleLocked(0L)
-        status = "順滑加速服務已啟動；等待鳴潮前景"
+        status = applied.message
         true
     }
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
         stopGameTelemetry()
-        val restored = restoreLocked()
+        val gpuRestored = !hasBackup() || restoreLocked()
+        val modeRestored = gameModeController.restore()
+        val restored = gpuRestored && modeRestored.success
         if (restored) {
             future?.cancel(false)
             future = null
             boostActive = false
             adaptiveHysteresis.reset()
-            status = "已停止；GPU 原始值已確認還原。"
+            status = "已停止；${modeRestored.message}"
         } else {
-            status = "還原失敗，備份保留並持續重試：$status"
-            scheduleLocked(2000L)
+            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}"
         }
         restored
     }
@@ -154,7 +138,8 @@ class GpuUserService : IAcceleratorService.Stub() {
             monitoring = false
             future?.cancel(false)
             future = null
-            restoreLocked()
+            if (hasBackup()) restoreLocked()
+            gameModeController.restore()
             shutdownGameTelemetry()
             scheduler.shutdownNow()
             systemQueryExecutor.shutdownNow()

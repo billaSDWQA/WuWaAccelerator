@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
         )
             .daemon(true)
             .processNameSuffix("accelerator")
-            .version(11)
+            .version(12)
     }
 
     private val permissionResultListener =
@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
             acceleratorService = null
             serviceBound = false
             bindingInProgress = false
-            showStatus("GPU 控制服務已中斷；若先前套用 GPU 設定，重新連線後會先嘗試還原")
+            showStatus("加速服務已中斷；重新連線後會先檢查並還原 Game Mode 備份")
         }
     }
 
