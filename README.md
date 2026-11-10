@@ -89,7 +89,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 - [Android 遊戲效能最佳化總覽](https://developer.android.com/games/optimize/overview)：AGI、Perfetto、ADPF、Game Mode、Memory Advice 等工具的定位。
 - [Android Dynamic Performance Framework（ADPF）](https://developer.android.com/games/optimize/adpf)：Thermal API、Performance Hint、Game Mode／Game State 是遊戲與系統互動的正式機制；通常需要遊戲本身整合，外部加速器不能假裝替鳴潮呼叫其內部工作階段。
-- [Game Mode interventions](https://developer.android.com/games/optimize/adpf/gamemode/gamemode-interventions)：Android 官方的 WindowManager backbuffer resize 可降低遊戲 GPU 負載，但實際效果依裝置、遊戲與 OEM 而異；官方提供 `cmd game` 的 intervention 測試方式。這是 WuWa Config Patcher Game Resizer 最值得在 A55 上獨立驗證的機制。
+- [Game Mode interventions](https://developer.android.com/games/optimize/adpf/gamemode/gamemode-interventions) 與 [FPS throttling](https://developer.android.com/games/optimize/adpf/gamemode/fps-throttling)：Android 官方指出 FPS throttling 可讓未自行 pacing 的遊戲以更穩定幀率執行；本專案只測試 Performance mode 60 FPS，不使用 downscale。設定前檢查 `device_config game_overlay` 與 OEM profile，設定後讀回，停止時以 `cmd game reset --mode 2` 還原 OEM 預設。
 - [Android Slow Sessions](https://developer.android.com/games/optimize/vitals/slow-session)：慢影格可能來自 CPU、GPU、熱降頻或刷新率／幀率不匹配；不能只看 GPU utilization。
 - [Android Frame Pacing／Swappy](https://developer.android.com/games/sdk/frame-pacing)：UE 4.25+ 可整合 Android Frame Pacing，但是否啟用及其遊戲內部設定需要遊戲端支援；外部 App 無法直接把 Swappy 注入鳴潮。
 - [Perfetto FrameTimeline](https://github.com/google/perfetto/blob/main/docs/data-sources/frametimeline.md)：Android 12+ 可分析 jank 與預期／實際時間軸；文件目前註明 SurfaceView 尚不支援，因此必須先確認鳴潮實際 layer 類型，不能預設資料完整。
@@ -106,12 +106,21 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 
 
+
+
+### 2026-11-10 Performance FPS intervention
+
+- Android 官方 FPS throttling 說明指出，平台 FPS intervention 可改善未自行 frame pacing 遊戲的穩定呈現；遊戲若已自行 pacing，介入可能無效。
+- 本專案只考慮 60 FPS，不套用 downscale。只在 device_config game_overlay 原始值為 null，且 cmd game list-configs 顯示 Performance mode scaling=1.0、Use Angle=false、Fps 空白時，才套用 cmd game set --mode 2 --fps 60。
+- 寫入前保存並校驗 OEM 預設快照；寫入後必須讀回 Fps=60 且 scaling/angle 不變。停止、遊戲離開前景或錯誤時執行 cmd game reset --mode 2，讀回必須與原快照相同；外部修改時拒絕覆蓋並保留備份。
+- AOSP 命令語義依 Android GameManagerShellCommand；實際 One UI 9 行為、鳴潮是否屬未 pacing 遊戲及幀時間收益仍待 SM-A5560 實測。不得把 CI 通過當作實機有效。
+
 ## 2026-11-10 實作狀態
 
 - A55 回報鳴潮可用 Game Mode 為 standard/performance（mode IDs 1、2）；Performance mode 可由 `cmd game mode performance <package>` 切換並由 `cmd game list-modes <package>` 讀回。
 - App 現在只使用上述既有 Performance mode，不設定 downscale 或 FPS intervention；原始模式持久化保存，停止時還原並讀回。
 - A55 的 SGPU `min_freq` 為 root:root 0644，Shell UID 2000 不可寫；因此不再把 GPU sysfs 寫入當成可用加速路徑。
-- Performance mode 的實際流暢度收益尚未完成 A55 A/B 測試；此提交不得視為已證明改善。
+- Android 官方說明 FPS throttling 可改善未自行 pacing 遊戲的呈現穩定性；此 60 FPS intervention 已加入安全條件與 rollback，但鳴潮是否屬未 pacing 遊戲、Samsung 韌體是否實際執行及 A55 幀時間收益仍待實機 A/B，不得預先宣稱改善。
 
 ## 建置與測試
 

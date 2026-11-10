@@ -170,7 +170,7 @@
 - Moha Lab Optimization：LICENSE 是 view-only，不可複製、修改、建置或散布；只能記錄公開描述，不能移植程式碼。
 - EliteGaming：單一 commit 與未附可重現測試的高 FPS 增益宣稱不構成證據；Aggressive LMK／殺背景 App 不納入本專案。
 
-- WuWa Config Patcher：Game Resizer 的 per-app downscale 在 SM-A5560 已實測造成遊戲 UI 縮小、操作區域不合用，故淘汰，不得再次套用 0.9 downscale。只保留 CVar 分析／GC guard 概念。Android Game Mode Performance mode 另以不含 downscale／FPS override 的獨立路徑實作，必須保存原模式、讀回驗證並可還原；效果仍待 A55 A/B。
+- WuWa Config Patcher：Game Resizer 的 per-app downscale 在 SM-A5560 已實測造成遊戲 UI 縮小、操作區域不合用，故淘汰，不得再次套用 0.9 downscale。只保留 CVar 分析／GC guard 概念。Android Game Mode Performance mode 可獨立使用；60 FPS intervention 僅在 OEM 設定未被覆寫、預設 profile 確認為 1.0 scaling／無 angle／無 FPS 時才可套用，必須保存 OEM 快照、讀回驗證並以 reset 還原；效果仍待 A55 A/B。
 - Mobile WuWa-Config：V3.7 配置主要測試平台並非 SM-A5560；其 V3.6 forbidden CVar 清單不是 V3.7 權威清單。不得將 Dimensity／Mali／Exynos 1380／2400 設定直接套用 Xclipse 530，必須核對鳴潮 3.7 Client.log。
 - Geilan63lan/Wuwa-Mobile-Config：作者標記有兩份由鄰近 preset 推測重建、未驗證的檔案；不可將 All Devices 標籤視為 A55 實測。
 - WuWa Tool Android：作者已標示 unmaintained；不作為目前可依賴的效能或維護方案。
@@ -204,3 +204,11 @@
 | 本次修改計畫與回歸測試 | |
 
 未完成必要檢查，不得開始實作。
+
+
+### 2026-11-10 Performance FPS intervention
+
+- Android 官方 FPS throttling 說明指出，平台 FPS intervention 可改善未自行 frame pacing 遊戲的穩定呈現；遊戲若已自行 pacing，介入可能無效。
+- 本專案只考慮 60 FPS，不套用 downscale。只在 device_config game_overlay 原始值為 null，且 cmd game list-configs 顯示 Performance mode scaling=1.0、Use Angle=false、Fps 空白時，才套用 cmd game set --mode 2 --fps 60。
+- 寫入前保存並校驗 OEM 預設快照；寫入後必須讀回 Fps=60 且 scaling/angle 不變。停止、遊戲離開前景或錯誤時執行 cmd game reset --mode 2，讀回必須與原快照相同；外部修改時拒絕覆蓋並保留備份。
+- AOSP 命令語義依 Android GameManagerShellCommand；實際 One UI 9 行為、鳴潮是否屬未 pacing 遊戲及幀時間收益仍待 SM-A5560 實測。不得把 CI 通過當作實機有效。

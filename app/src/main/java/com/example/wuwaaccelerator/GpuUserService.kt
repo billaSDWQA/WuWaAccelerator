@@ -56,6 +56,10 @@ class GpuUserService : IAcceleratorService.Stub() {
         gamePackage = GAME,
         stateFile = File(directory, "game-mode-state")
     )
+    private val gameFpsController = GameFpsInterventionController(
+        gamePackage = GAME,
+        stateFile = File(directory, "game-fps-state")
+    )
 
     @Volatile private var status = "尚未啟動"
     private var monitoring = false
@@ -103,16 +107,22 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
         // SGPU sysfs is root-owned on this firmware. Use only the
         // device-advertised Game Mode; never write downscale/FPS overrides.
+        val fpsApplied = gameFpsController.apply()
+        if (!fpsApplied.success) {
+            status = fpsApplied.message
+            return@synchronized false
+        }
         val applied = gameModeController.applyPerformance()
         if (!applied.success) {
-            status = applied.message
+            val fpsRollback = gameFpsController.restore()
+            status = applied.message + "；" + fpsRollback.message
             return@synchronized false
         }
         monitoring = true
         boostActive = false
         gameSeenForeground = false
         scheduleGameModeWatchdogLocked()
-        status = applied.message
+        status = applied.message + "；" + fpsApplied.message
         true
     }
 
@@ -124,15 +134,16 @@ class GpuUserService : IAcceleratorService.Stub() {
         stopGameTelemetry()
         val gpuRestored = !hasBackup() || restoreLocked()
         val modeRestored = gameModeController.restore()
-        val restored = gpuRestored && modeRestored.success
+        val fpsRestored = gameFpsController.restore()
+        val restored = gpuRestored && modeRestored.success && fpsRestored.success
         if (restored) {
             future?.cancel(false)
             future = null
             boostActive = false
             adaptiveHysteresis.reset()
-            status = "已停止；${modeRestored.message}"
+            status = "已停止；${modeRestored.message}；${fpsRestored.message}"
         } else {
-            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}"
+            status = "還原未完成；GPU 備份=${if (gpuRestored) "已處理" else "保留"}；${modeRestored.message}；${fpsRestored.message}"
         }
         restored
     }
@@ -149,6 +160,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             gameModeWatchdogFuture = null
             if (hasBackup()) restoreLocked()
             gameModeController.restore()
+            gameFpsController.restore()
             shutdownGameTelemetry()
             scheduler.shutdownNow()
             systemQueryExecutor.shutdownNow()
@@ -169,10 +181,11 @@ class GpuUserService : IAcceleratorService.Stub() {
                         monitoring = false
                         gameSeenForeground = false
                         val restored = gameModeController.restore()
-                        status = if (restored.success) {
-                            "鳴潮已離開前景；${restored.message}"
+                        val fpsRestored = gameFpsController.restore()
+                        status = if (restored.success && fpsRestored.success) {
+                            "鳴潮已離開前景；${restored.message}；${fpsRestored.message}"
                         } else {
-                            "鳴潮已離開前景，但 Game Mode 還原未完成；備份保留：${restored.message}"
+                            "鳴潮已離開前景，但系統設定還原未完成；Game Mode：" + restored.message + "；FPS：" + fpsRestored.message
                         }
                         gameModeWatchdogFuture?.cancel(false)
                         gameModeWatchdogFuture = null
