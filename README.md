@@ -1,106 +1,52 @@
-# WuWaAccelerator 1.0.1
+# WuWa Smooth Accelerator
 
-> 開發前必讀：[DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md)。所有程式碼、CI、效能策略與版本變更都必須遵守該文件的全局檢查、失敗追蹤及驗收流程。
+**目標只有兩件事：畫面銜接順暢、減少遊戲卡頓。**
 
-**鳴潮專屬加速器｜Samsung Galaxy A55 5G（SM-A5560 / Exynos 1480 / Xclipse 530）**
+本專案針對 Samsung Galaxy A55 5G（SM-A5560 / Exynos 1480 / Xclipse 530）與鳴潮 Android 版本開發。開發前必須閱讀 [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md)。
 
-本分支為 1.0.x 完整整合線，保留 0.9.0 的 SGPU 自適應最低頻率控制，並整合 CPU/GPU 即時監測、GPU 專用溫度感測、平均 FPS 與 1% Low 簡化統計，以及 HUD 前景生命週期清理。
+## 設計方向
 
-> **驗收原則：CI 通過不等於 A55 實機驗收通過。** 本分支仍須在 SM-A5560、Android 17 / One UI 9、Shizuku shell UID 2000 環境實測；尤其要確認 SurfaceFlinger 是否公開鳴潮 layer、SGPU 寫入權限、HUD 長時間運作與遊戲 15–30 分鐘以上的溫度／幀時間表現。
+- 移除懸浮 HUD、CPU 使用率／頻率監控、GPU 溫度顯示及 SurfaceFlinger FPS／1% Low 診斷介面。
+- App 只保留「啟動順滑加速」與「停止並還原」兩個操作。
+- 保留控制器內部最小必要的 GPU 負載取樣。這不是給使用者看的監控功能，而是判斷 GPU 最低頻率請求的控制輸入；沒有可信負載資料時必須 fail-safe，不可盲目升頻。
+- 保留前景偵測、Android ThermalService 熱保護、記憶體壓力保護、GPU 頻率寫入讀回驗證、原始值備份與安全還原。
+- 不對 CPU governor、cpuset、uclamp、scheduler、電壓或 thermal 節點寫入。Shizuku shell UID 2000 不等於 Root，不能假設可控制 Android／Samsung 核心排程。
+- GPU `min_freq` 只是最低頻率請求，不等於實際 GPU clock；核心 governor 和熱管理仍掌握實際頻率。
 
-## 1. 功能
+## 效能驗收目標
 
-### GPU 自適應控制
-- 只針對已驗證型號 Samsung SM-A5560。
-- 透過 Shizuku UserService 讀取 A55 SGPU devfreq 節點。
-- 在驅動回報的負載來源確認為 `jiffies` 且資料新鮮時，才把 SGPU 利用率交給控制器。
-- 依負載與保護狀態提出 750 / 864 / 960 / 1025 MHz 的 `min_freq` 下限請求；會先核對硬體上限及可用頻率步進。
-- `min_freq` 是最低頻率請求，不是 GPU 實際時脈。實際時脈仍由核心 governor、GPU 負載及 Android 熱管理共同決定。
-- 升頻／降頻採遲滯確認，避免短暫波動造成頻率來回切換。
+本專案不以平均 FPS 單一數字作為成功標準。主要驗收：
 
-### CPU 唯讀監測
-- 以 `/proc/stat` 的 per-core 累積計數差值計算 CPU 整體與各核心使用率。
-- 以 `/sys/devices/system/cpu/cpufreq/policy*/` 動態探索 CPU 頻率政策、相關核心及可讀取的目前／最小／最大頻率。
-- 不假設 A55 核心編號或 policy 拓樸固定。
-- **不寫入** CPU governor、cpufreq、cpuset、uclamp、排程器或電壓節點。Shizuku shell 權限不等於 Root；本版本不會宣稱能直接控制 CPU 排程或強制大核常駐。
+1. 角色切換、快速移動、轉向、跳躍／滑翔、技能與大招時，畫面銜接是否更穩定。
+2. 幀時間尖峰、連續掉幀與可感知卡頓是否減少。
+3. 連續遊玩 15–30 分鐘後，是否因熱累積而出現明顯退化。
 
-### 遊戲呈現統計診斷
-- 偵測鳴潮在前景時，嘗試啟用 `dumpsys SurfaceFlinger --timestats`，約每 10 秒讀取一次統計。
-- 若系統公開鳴潮 layer，從 `present2present` 直方圖估算平均 FPS 與 1% Low FPS，並顯示 SurfaceFlinger droppedFrames。1% Low 只在至少 100 個呈現間隔樣本後顯示。
-- 鳴潮離開前景、使用者停止加速或服務正常銷毀時，會嘗試關閉 timestats。
-- 若 One UI／SurfaceFlinger 不支援或不公開鳴潮 layer，會明確顯示不可用，不猜測其他 layer 是遊戲。
-- 平均 FPS 由平均呈現間隔換算；1% Low 是最慢 1% 呈現影格的平均 FPS。兩者都是 SurfaceFlinger 呈現層估算，不是遊戲引擎內部 GPU render time；若韌體沒有公開遊戲 layer，顯示 N/A，不會以螢幕更新率猜值。
+平均 FPS、1% Low、呈現間隔與溫度可以在開發驗收時透過外部 ADB／系統工具取得，但不再放進加速器 App 內常駐監控。任何改善都必須有相同場景、相同畫質、相近溫度起點的修改前後實測；CI 通過不代表實機效能已改善。
 
-### GPU 溫度監測
-- 每 5 秒掃描 `/sys/class/thermal/thermal_zone*`，只接受名稱明確包含 GPU、SGPU、Xclipse 或 G3D 的感測器。
-- CPU／SoC 感測器不會被標成 GPU 溫度；無法讀取或韌體未公開 GPU 感測器時顯示 N/A。
+## 系統限制
 
-### 熱與記憶體保護
-- 讀取 Android thermalservice 節流等級；中度或更高、溫度狀態未知時停止提高 GPU 下限並嘗試還原。
-- 輕度熱狀態限制在基準層。
-- 讀取 `/proc/meminfo` 的 MemAvailable；記憶體壓力升高時限制升頻，嚴重不足時停止加速。
-- 不關閉 Android 熱保護、不改電壓、不殺除其他 App、不強制超頻。
+- 僅允許已驗證的 SM-A5560 裝置使用固定 SGPU sysfs 控制路徑。
+- 不需要 Root，但節點寫入是否成功取決於韌體權限；讀取成功不代表可寫入。
+- 不會關閉 Android 熱保護、不會強制超頻，也不會殺除其他 App。
+- 外部工具無法保證修復遊戲引擎內部 Shader 編譯、資源載入或遊戲自身邏輯造成的卡頓。
+- 不保證零卡頓或固定 60 FPS；必須以實機幀時間結果判定。
 
-### HUD 與還原
-- 使用者從主畫面按「啟動懸浮 HUD（選用）」並授予懸浮窗權限後，HUD 透過既有 Shizuku Binder 讀取快照，不另開 GPU sysfs 寫入通道。
-- CPU、GPU 溫度與 SurfaceFlinger 呈現統計只在使用者啟動懸浮 HUD、且鳴潮被確認為前景時啟動；關閉 HUD、離開遊戲、停止加速或服務銷毀時停止取樣。CPU 監測僅唯讀，不會修改 CPU governor 或頻率。
-- 若 GPU 負載來源不可用、過期或無法驗證，控制器不會因缺少資料而要求 750 MHz 基準下限；會維持／還原原始 GPU 設定。
-- HUD 縮小模式固定顯示三行：GPU 負載／實際時脈／GPU 溫度、CPU 使用率／頻率政策、平均 FPS／1% Low；展開後可查看完整診斷資料。
-- GPU 修改前先備份原始值，記錄韌體指紋與最後套用值；每次寫入後讀回驗證。
-- 還原前檢查備份完整性及目前值是否仍符合本程式最後套用紀錄；外部已修改時拒絕盲目覆寫。
-- 還原失敗保留備份，不以硬編碼值猜測。重新連線時先處理舊備份。
+## 建置與測試
 
-## 2. 系統需求與限制
-
-- Samsung Galaxy A55 5G，型號 **SM-A5560**。
-- Android 8.0 以上；開發驗證目標為 Android 17 / One UI 9。
-- 已啟動 Shizuku，並授予本 App Shizuku 權限。
-- 首次使用 HUD 需授予「顯示在其他應用程式上層」權限。
-- 不需要 Root；但 SGPU 節點是否可寫取決於該韌體的核心權限。讀得到不代表一定寫得進去。
-- 不會修改鳴潮 Engine.ini、遊戲資產或遊戲內畫質／FPS 設定。
-- 不保證穩定 60 FPS，也不能修復遊戲自身的邏輯卡頓、shader 編譯或資源載入尖峰。外部工具能提供的是安全的系統層控制與診斷資料。
-
-## 3. 建置與安裝
-
-CI 會執行：
-1. ` :app:testDebugUnitTest `
-2. ` :app:lintDebug `
-3. Debug 與 Release APK 建置
-4. 上傳可直接測試的 Debug APK artifact
-
-在 GitHub 開啟 **Actions → Android CI 1.0.x**，選擇最新且成功的執行紀錄，下載 `WuWaAccelerator-1.0.1-debug` artifact 並解壓縮安裝。
-
-若新版 APK 無法覆蓋安裝舊版，先在舊版 App 內停止並確認 GPU 原始值已還原，再解除安裝舊版。GitHub Hosted Runner 的 Debug 簽章可能隨建置不同。
-
-本機建置：
+本機完整驗證：
 
 ```bash
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-## 4. 建議驗收流程
+CI 會執行單元測試、Android Lint、Debug 與 Release APK 建置。請以最新 commit 對應的 GitHub Actions 結果為準，不可用舊版本綠燈代替。
 
-1. 確認 Shizuku 已啟動，App 顯示 UserService 已連線。
-2. 在主畫面確認 GPU、CPU 讀值是否新鮮；若權限不足，應顯示不可用，不得把缺失資料當成 0。
-3. 啟動 HUD，再開啟鳴潮；確認前景偵測、GPU 控制狀態與 CPU 讀值持續更新。
-4. 確認 SurfaceFlinger 統計是否找到鳴潮 layer。若找不到，記錄為韌體能力限制，不可拿系統其他 layer 代替。
-5. 測試角色切換、技能／大招、摩托車上下車、快速移動與傳送等容易出現 frame-time spike 的場景。
-6. 遊戲連續運作至少 15–30 分鐘，觀察 GPU 實際時脈、熱狀態、CPU 使用率、呈現間隔與掉幀變化。
-7. 離開鳴潮後確認 GPU 原始 `min_freq` 已還原；手動停止時也確認備份狀態。
+## A55 實機驗收
 
-## 5. 尚待實機驗證
+1. 確認 Shizuku 已啟動並授予權限。
+2. 確認 App 能啟動 UserService，且 SGPU 節點讀取／寫入權限符合預期。
+3. 依固定路線測試角色切換、摩托車高速移動與轉向、跳躍／滑翔、第一個技能及大招。
+4. 以外部 ADB／系統工具記錄呈現間隔、GPU 頻率、熱狀態與掉幀；不把單張截圖當成持續效能證據。
+5. 連續測試至少 15–30 分鐘，並在停止加速後確認原始 GPU 設定已安全還原。
 
-| 項目 | 狀態 |
-|---|---|
-| CPU / GPU／GPU 溫度遙測程式與單元測試 | CI 驗證中 |
-| Android Lint、Debug / Release 建置 | CI 驗證中 |
-| SM-A5560 Shizuku CPU sysfs 讀取權限 | 待實機確認 |
-| SM-A5560 SurfaceFlinger 鳴潮 layer 可見性及 FPS 估算 | 待實機確認 |
-| SM-A5560 GPU thermal zone 是否公開及可讀 | 待實機確認 |
-| SurfaceFlinger droppedFrames 與呈現間隔對照遊戲卡頓 | 待實機確認 |
-| SGPU 自適應寫入與還原 | 需在目前韌體重新驗收 |
-| HUD 長時間穩定性 | 待實機確認 |
-| 15–30 分鐘以上溫度與幀時間穩定性 | 待實機確認 |
-| 穩定 60 FPS | 不作保證，須以實機數據判斷 |
-
-**任何 CI 綠燈都不能取代實機驗收。** 若遙測來源、熱狀態或還原紀錄不可信，控制器應優先停止加速並保留還原資訊。
+**實機驗收尚未完成前，不得宣稱卡頓已解決。**
