@@ -309,7 +309,7 @@ internal class GpuTelemetryCollector(
             if (metric.sourcePath == GpuSysfsPaths.CURRENT_UTILIZATION &&
                 metric.error == null && !jiffiesVerified
             ) {
-                metric.copy(error = "utilization_source 未驗證 jiffies；忽略此來源並檢查其他負載節點")
+                metric.copy(error = "utilization_source 未驗證 jiffies；忽略此來源並檢查其他負載節點；不交給自動調頻")
             } else {
                 metric
             }
@@ -328,7 +328,7 @@ internal class GpuTelemetryCollector(
                 sampledAtElapsedMs = clockMs(),
                 error = "所有候選節點均不存在或無法讀取"
             )
-            return unavailable to readings
+            return unavailable to diagnosticReadings
         }
 
         val values = valid.mapNotNull { it.normalizedValue?.toIntOrNull() }
@@ -344,10 +344,10 @@ internal class GpuTelemetryCollector(
                 sampledAtElapsedMs = clockMs(),
                 error = "多個 GPU 負載來源差異達 $spread 個百分點；停用本次自適應升頻"
             )
-            return conflict to readings
+            return conflict to diagnosticReadings
         }
 
-        return valid.first() to readings
+        return valid.first() to diagnosticReadings
     }
 
     private fun readMetric(
