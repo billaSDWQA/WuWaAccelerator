@@ -59,7 +59,8 @@ def parse_layer(block: str) -> dict | None:
                 if cumulative >= rank:
                     percentiles[f"p{percentile}_present_to_present_ms"] = ms
                     break
-    drop_percent = 100.0 * dropped / total if total and dropped is not None else None
+    drop_denominator = total + dropped if dropped is not None else 0
+    drop_percent = 100.0 * dropped / drop_denominator if drop_denominator > 0 else None
     return {
         "layer_name": layer.group(1) if layer else None,
         "package_name": package.group(1) if package else None,
@@ -141,7 +142,7 @@ def main() -> int:
             "layers": [summarize(layer, args.target_fps) for layer in layers],
             "raw_dump": str(raw_path),
             "interpretation": {
-                "dropped_frame_percent": "droppedFrames / totalFrames * 100; target <= 1.0%; null means unavailable, never zero",
+                "dropped_frame_percent": "droppedFrames / (totalFrames + droppedFrames) * 100; totalFrames counts presented frames; target <= 1.0%; null means unavailable, never zero",
                 "p99_present_to_present": "SurfaceFlinger presentation interval, not UE internal render time",
                 "long_gap_percent": "Intervals > 1.5x target frame budget; diagnostic proxy, not droppedFrames",
             },

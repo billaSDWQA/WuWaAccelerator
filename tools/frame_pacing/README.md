@@ -22,7 +22,7 @@ If Samsung's layer name does not include the package name, inspect the preserved
 
 ## Interpretation and acceptance
 - Select the Wuthering Waves layer, not System UI, navigation bar, or another app.
-- dropped_frame_percent is calculated only when SurfaceFlinger exposes both droppedFrames and totalFrames: droppedFrames / totalFrames * 100. The project target is at most 1.0%. Missing fields are reported as null, never fabricated as zero.
+- dropped_frame_percent is calculated only when SurfaceFlinger exposes both droppedFrames and totalFrames (presented frames): droppedFrames / (totalFrames + droppedFrames) * 100. The project target is at most 1.0%. Missing fields are reported as null, never fabricated as zero.
 - P50/P90/P95/P99 are calculated from the selected layer's presentToPresent histogram. They describe display presentation intervals, not UE4 internal game-thread, render-thread, shader, or GPU execution time.
 - long_gap_interval_percent counts histogram intervals greater than 1.5 times the target frame budget (25 ms at 60 FPS). This is a diagnostic long-gap proxy, not the dropped-frame percentage and not proof of engine-side missed frames.
 - If the target layer is absent or the OEM output format is unsupported, the script exits with an error and preserves the raw dump. Do not substitute display refresh rate or another layer's FPS.

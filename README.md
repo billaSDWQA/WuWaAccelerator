@@ -6,7 +6,7 @@
 
 量化驗收目標（60 FPS 測試設定）：
 - 單幀目標預算：16.67 ms。
-- SurfaceFlinger 鳴潮 Layer 的 droppedFrames / totalFrames：不高於 1.0%；若系統未提供欄位或無法識別正確 Layer，結果必須標示 N/A，不得當成 0%。
+- SurfaceFlinger 鳴潮 Layer 的 droppedFrames / (totalFrames + droppedFrames)：不高於 1.0%；若系統未提供欄位或無法識別正確 Layer，結果必須標示 N/A，不得當成 0%。
 - 同時比較 presentToPresent P50／P90／P95／P99 與超過 25 ms（60 FPS 預算的 1.5 倍）的長間隔比例，以觀察尾端尖峰。長間隔比例是診斷指標，不等同 droppedFrames。
 - 每組基準／候選設定使用相同遊戲版本、畫質、測試路線、時長及盡可能相近的溫度起點；分開測試，不同時改 Game Mode 與 INI。建議每組至少三次配對測試，持續 15–30 分鐘。
 

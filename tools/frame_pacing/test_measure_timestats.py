@@ -25,7 +25,7 @@ class TimeStatsParserTests(unittest.TestCase):
         self.assertEqual(1, len(layers))
         self.assertEqual(1000, layers[0]["total_frames"])
         self.assertEqual(7, layers[0]["dropped_frames"])
-        self.assertAlmostEqual(0.7, layers[0]["dropped_frame_percent"])
+        self.assertAlmostEqual(7 / 1007 * 100, layers[0]["dropped_frame_percent"])
         self.assertTrue(layers[0]["meets_dropped_frame_target"])
 
     def test_calculates_p99_and_long_gap_proxy(self):
@@ -49,7 +49,7 @@ class TimeStatsParserTests(unittest.TestCase):
 
     def test_missing_histogram_keeps_drop_rate_but_omits_percentiles(self):
         layer = parse_layer("layerName = Game\ntotalFrames = 10\ndroppedFrames = 1")
-        self.assertAlmostEqual(10.0, layer["dropped_frame_percent"])
+        self.assertAlmostEqual(1 / 11 * 100, layer["dropped_frame_percent"])
         self.assertNotIn("p99_present_to_present_ms", layer)
 
 
