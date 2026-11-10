@@ -95,6 +95,16 @@ class GpuUserService : IAcceleratorService.Stub() {
             status = "不支援裝置：${Build.MANUFACTURER} ${Build.MODEL}"
             return@synchronized false
         }
+        // A readable sysfs node is not necessarily writable by Shizuku's shell UID.
+        // Fail before starting pollers or creating a backup when the process access
+        // check already proves that this process cannot write the node. The later
+        // write and read-back remain authoritative because this preflight cannot
+        // guarantee SELinux access.
+        if (!GpuWriteAccessPolicy.canAttemptWrite(uid, SHELL_UID, ROOT_UID, minFile.canWrite())) {
+            status = "目前韌體不允許 Shell UID 2000 寫入 SGPU min_freq；未啟動控制器、未建立備份，也未修改 GPU"
+            return@synchronized false
+        }
+
         val minimum = readMin()
         if (minimum == null || !GpuFrequencyPolicy.isValid(minimum)) {
             status = "無法讀取或驗證 $MIN_NODE；未修改 GPU"
