@@ -78,7 +78,7 @@ internal class DisplayRefreshRateController(
         return DisplayRefreshResult(
             true,
             true,
-            "已讀回確認顯示刷新率 60Hz（鳴潮遊戲 FPS 設定維持 60）；離開遊戲時還原"
+            "已讀回確認 Android 刷新率設定值為 60Hz（不等同面板實際模式已確認）；離開遊戲時還原"
         )
     }
 
