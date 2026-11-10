@@ -106,7 +106,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             return@synchronized false
         }
         // SGPU sysfs is root-owned on this firmware. Use only the
-        // device-advertised Game Mode; never write downscale/FPS overrides.
+        // device-advertised Game Mode; optional FPS pacing is applied separately with backup/read-back/rollback.
         val fpsApplied = gameFpsController.apply()
         if (!fpsApplied.success) {
             status = fpsApplied.message

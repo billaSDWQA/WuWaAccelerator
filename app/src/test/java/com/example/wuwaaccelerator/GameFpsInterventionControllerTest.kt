@@ -75,6 +75,22 @@ class GameFpsInterventionControllerTest {
         d.deleteRecursively()
     }
 
+    @Test fun clearsBackupWhenSetCommandFailedBeforeChangingProfile() {
+        val d = Files.createTempDirectory("wuwa-fps").toFile()
+        val runner: (List<String>, Long) -> String? = { a, _ ->
+            when {
+                a.firstOrNull() == "device_config" -> "null"
+                a.getOrNull(2) == "list-configs" -> config()
+                a.getOrNull(2) == "set" -> null
+                else -> null
+            }
+        }
+        val result = GameFpsInterventionController("game.pkg", File(d, "state"), runner = runner).apply()
+        assertFalse(result.success)
+        assertFalse(File(d, "state").exists())
+        d.deleteRecursively()
+    }
+
     @Test fun doesNotOverrideNonDefaultOemProfile() {
         val d = Files.createTempDirectory("wuwa-fps").toFile()
         val runner: (List<String>, Long) -> String? = { a, _ ->

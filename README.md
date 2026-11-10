@@ -1,4 +1,4 @@
-# WuWa Smooth Accelerator 1.0.2
+# WuWa Smooth Accelerator 1.0.3
 
 ## 幀時間與漏幀率驗收（外部 ADB 工具）
 
@@ -20,9 +20,9 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 - 移除懸浮 HUD、CPU 使用率／頻率監控、GPU 溫度顯示及 SurfaceFlinger FPS／1% Low 診斷介面。
 - App 只保留「啟動順滑加速」與「停止並還原」兩個操作。
-- App 目前改用 Android GameManagerService 已提供給鳴潮的 Performance mode；只在讀回確認目前為 standard、且 available modes 明確包含 2 時才切換。
+- App 使用 Android GameManagerService 已提供給鳴潮的 Performance mode；另在 OEM profile 未被自訂、原始 game_overlay 為 null 時，嘗試套用 60 FPS throttling 以改善未 pacing 遊戲的呈現規律性。
 - 切換前持久化保存原 Game Mode，切換後重新查詢確認；停止服務時還原原模式並再次讀回驗證。還原失敗時保留備份。
-- 不寫入 Game Mode downscale／FPS intervention，不修改 GPU／CPU sysfs、governor、cpuset、uclamp、scheduler、電壓或 thermal 節點。
+- 不寫入 Game Mode downscale；只在 OEM profile 明確為 scaling=1.0、Use Angle=false、Fps 空白且 game_overlay 原始值為 null 時，套用可回復的 Performance mode 60 FPS intervention。既有自訂設定一律不覆寫。不修改 GPU／CPU sysfs、governor、cpuset、uclamp、scheduler、電壓或 thermal 節點。
 - SGPU `min_freq` 在目標韌體上是 root:root 0644，Shell UID 2000 無寫入權限；舊 GPU 控制路徑不再作為啟動加速的主路徑。
 
 ## 效能驗收目標
@@ -37,7 +37,7 @@ SurfaceFlinger 數據只代表系統呈現端，不等於 UE4 內部 Game Thread
 
 ## 系統限制
 
-- 僅在 GameManagerService 回報鳴潮支援 Performance mode 時才啟用；不自行建立或覆寫遊戲 intervention。
+- 僅在 GameManagerService 回報鳴潮支援 Performance mode 時才切換；60 FPS intervention 僅在確認 OEM 原始 profile 未被覆寫時啟用，並在停止或遊戲離開前景時 reset 回 OEM 原始設定。
 - Android Game Mode 是 OEM／系統提供的 per-game 策略入口；模式切換成功不代表 Samsung 韌體一定會提高實際效能。
 - 不會關閉 Android 熱保護、不會強制超頻，也不會殺除其他 App。
 - 外部工具無法保證修復遊戲引擎內部 Shader 編譯、資源載入或遊戲自身邏輯造成的卡頓。

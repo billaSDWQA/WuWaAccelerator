@@ -54,6 +54,10 @@ internal class GameFpsInterventionController(
         if (!stateFile.exists()) return GameFpsResult(true, false, "沒有 FPS intervention 備份")
         val original = readState() ?: return GameFpsResult(false, false, "FPS intervention 備份校驗失敗；保留備份")
         val current = readConfig() ?: return GameFpsResult(false, false, "無法讀回 Performance profile；保留備份")
+        if (current == original) {
+            if (!stateFile.delete()) return GameFpsResult(false, false, "設定已是 OEM 原始值，但備份無法刪除")
+            return GameFpsResult(true, false, "FPS intervention 原本未生效；已清除無需還原的備份")
+        }
         if (current.scaling != original.scaling || current.useAngle != original.useAngle || current.fps != "60") {
             return GameFpsResult(false, false, "FPS intervention 已被外部修改；拒絕覆蓋，備份保留")
         }
