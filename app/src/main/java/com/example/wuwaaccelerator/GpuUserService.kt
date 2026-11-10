@@ -27,7 +27,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         private const val CUR_NODE = "$NODE/cur_freq"
         private const val GOV_NODE = "$NODE/governor"
         private const val AVAILABLE_NODE = "$NODE/available_frequencies"
-        // Faster control response: two consecutive load samples now require ~2 s, not ~4 s.
+        // Control polls twice per second; load escalation is immediate after one verified sample.
         private const val POLL_MS = 500L
         // Activity-manager dumpsys is expensive; reuse the last foreground result
         // between checks while keeping the GPU controller responsive at 1 Hz.
