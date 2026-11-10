@@ -43,9 +43,9 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     private val lock = Any()
     private val scheduler: ScheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Monitor").apply { isDaemon = true } }
+        Executors.newSingleThreadScheduledExecutor { Thread(it, "WuWa-GPU-Control").apply { isDaemon = true } }
     private val systemQueryExecutor = Executors.newFixedThreadPool(2) { Thread(it, "WuWa-System-Query").apply { isDaemon = true } }
-    private val telemetryMonitor = GpuTelemetryMonitor()
+    private val gpuLoadSampler = GpuLoadSampler()
     private val directory = File("/data/local/tmp/WuWaAccelerator")
     private val backup = File(directory, "gpu-state-v2")
     private val legacyBackup = File(directory, "gpu-state-v1")
@@ -67,7 +67,6 @@ class GpuUserService : IAcceleratorService.Stub() {
     private var foregroundCheckInFlight = false
     private var cachedForegroundResult = ForegroundResult(null, "尚未偵測")
     private var thermalCheckInFlight = false
-    private var gameForeground = false
     private val adaptiveHysteresis = GpuAdaptiveHysteresis()
     private var future: ScheduledFuture<*>? = null
 
@@ -81,7 +80,7 @@ class GpuUserService : IAcceleratorService.Stub() {
 
     override fun startMonitoring(): Boolean = synchronized(lock) {
         if (monitoring) {
-            status = "監控已啟動；${gpuSummary()}"
+            status = "順滑加速服務已啟動；等待鳴潮前景"
             return@synchronized true
         }
         val uid = Process.myUid()
@@ -104,7 +103,6 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         monitoring = true
-        gameForeground = false
         boostActive = false
         unknownSamples = 0
         exitSamples = 0
@@ -119,13 +117,12 @@ class GpuUserService : IAcceleratorService.Stub() {
         cachedForegroundResult = ForegroundResult(null, "尚未偵測")
         adaptiveHysteresis.reset()
         scheduleLocked(0L)
-        status = "監控啟動（Shizuku UID=$uid）；${gpuSummary()}；等待鳴潮"
+        status = "順滑加速服務已啟動；等待鳴潮前景"
         true
     }
 
     override fun stopAndRestore(): Boolean = synchronized(lock) {
         monitoring = false
-        gameForeground = false
         stopGameTelemetry()
         val restored = restoreLocked()
         if (restored) {
@@ -133,7 +130,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             future = null
             boostActive = false
             adaptiveHysteresis.reset()
-            status = "已停止；GPU 原始值已確認還原。${gpuSummary()}"
+            status = "已停止；GPU 原始值已確認還原。"
         } else {
             status = "還原失敗，備份保留並持續重試：$status"
             scheduleLocked(2000L)
@@ -147,7 +144,6 @@ class GpuUserService : IAcceleratorService.Stub() {
     override fun destroy() {
         synchronized(lock) {
             monitoring = false
-                gameForeground = false
             future?.cancel(false)
             future = null
             restoreLocked()
@@ -176,7 +172,7 @@ class GpuUserService : IAcceleratorService.Stub() {
                 synchronized(lock) {
                 if (!monitoring && hasBackup() && restoreLocked()) {
                     stopGameTelemetry()
-                            status = "GPU 原始值已確認還原。${gpuSummary()}"
+                            status = "GPU 原始值已確認還原。"
                     future?.cancel(false)
                     future = null
                 }
@@ -222,8 +218,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         val foregroundSampled = detectionState.second
         if (detection.packageName == GAME) synchronized(lock) {
             if (monitoring) {
-                gameForeground = true
-                telemetryMonitor.start()
+                gpuLoadSampler.start()
             }
         }
 
@@ -255,7 +250,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!monitoring) {
                         if (hasBackup() && restoreLocked()) {
                     stopGameTelemetry()
-                            status = "GPU 原始值已確認還原。${gpuSummary()}"
+                            status = "GPU 原始值已確認還原。"
                     future?.cancel(false)
                     future = null
                 }
@@ -274,7 +269,6 @@ class GpuUserService : IAcceleratorService.Stub() {
             if (!foregroundSampled) return
             unknownSamples++
             if (unknownSamples >= UNKNOWN_LIMIT) {
-                gameForeground = false
                 stopGameTelemetry()
                         if (hasBackup() && restoreLocked()) {
                     boostActive = false
@@ -330,13 +324,12 @@ class GpuUserService : IAcceleratorService.Stub() {
         if (!foregroundSampled) return
         exitSamples++
         if (exitSamples >= EXIT_LIMIT) {
-            gameForeground = false
             stopGameTelemetry()
                 if (hasBackup()) {
                 if (restoreLocked()) {
                     boostActive = false
                     adaptiveHysteresis.reset()
-                    status = "鳴潮已離開前景；GPU 原始值已確認還原。${gpuSummary()}"
+                    status = "鳴潮已離開前景；GPU 原始值已確認還原。"
                 } else {
                     status = "鳴潮已離開前景，但 GPU 還原失敗；保留備份並重試：$status"
                 }
@@ -422,9 +415,7 @@ class GpuUserService : IAcceleratorService.Stub() {
             }
 
             boostActive = true
-            status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-                "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-                "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
+            status = "GPU 自適應控制已套用。"
             return
         }
 
@@ -461,9 +452,7 @@ class GpuUserService : IAcceleratorService.Stub() {
         }
 
         boostActive = true
-        status = "自適應 GPU 下限=$target kHz；GPU load=${gpuLoad?.let { "$it%" } ?: "未知"}；" +
-            "thermal=${GpuAdaptivePolicy.thermalLabel(thermalStatus)}；" +
-            "memory=${GpuAdaptivePolicy.memoryLabel(memoryPressure)}；${gpuSummary()}"
+        status = "GPU 自適應控制已套用。"
     }
 
     private fun readThermalStatus(): Int? {
@@ -490,7 +479,7 @@ class GpuUserService : IAcceleratorService.Stub() {
     }
 
     private fun readGpuLoadPercent(): Int? =
-        telemetryMonitor.snapshot().gpuLoadPercent(
+        gpuLoadSampler.snapshot().gpuLoadPercent(
             SystemClock.elapsedRealtime(),
             GpuTelemetrySnapshot.STALE_AFTER_MS
         )
@@ -740,14 +729,12 @@ class GpuUserService : IAcceleratorService.Stub() {
     private fun hasBackup(): Boolean = backup.exists() || legacyBackup.exists()
 
     private fun stopGameTelemetry() {
-        telemetryMonitor.stop()
+        gpuLoadSampler.stop()
     }
 
     private fun shutdownGameTelemetry() {
-        telemetryMonitor.shutdown()
+        gpuLoadSampler.shutdown()
     }
-
-    private fun gpuSummary(): String = telemetryMonitor.snapshot().compactSummary()
 
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256")
