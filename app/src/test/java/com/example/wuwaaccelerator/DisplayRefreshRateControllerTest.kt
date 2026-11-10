@@ -90,22 +90,16 @@ class DisplayRefreshRateControllerTest {
         dir.deleteRecursively()
     }
 
-    @Test fun rollsBackPartialWriteWhenPeakReadbackFails() {
+    @Test fun rollsBackWhenSecondSettingDoesNotTakeEffect() {
         val dir = directory()
         var min = "60.0"
         var peak = "120.0"
-        var failPeakReadback = false
         val runner: (List<String>, Long) -> String? = { args, _ ->
             when {
                 args.getOrNull(1) == "get" && args.lastOrNull() == "min_refresh_rate" -> min
-                args.getOrNull(1) == "get" && args.lastOrNull() == "peak_refresh_rate" ->
-                    if (failPeakReadback) "120.0" else peak
+                args.getOrNull(1) == "get" && args.lastOrNull() == "peak_refresh_rate" -> peak
                 args.getOrNull(1) == "put" && args.getOrNull(3) == "min_refresh_rate" -> { min = args.last(); "ok" }
-                args.getOrNull(1) == "put" && args.get(args.size - 2) == "peak_refresh_rate" -> {
-                    peak = args.last()
-                    if (peak == "60.0") failPeakReadback = true
-                    "ok"
-                }
+                args.getOrNull(1) == "put" && args.getOrNull(3) == "peak_refresh_rate" -> "ok"
                 else -> null
             }
         }
