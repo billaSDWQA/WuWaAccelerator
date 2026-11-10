@@ -77,6 +77,7 @@
 
 - [Android 遊戲效能最佳化總覽](https://developer.android.com/games/optimize/overview)：AGI、Perfetto、ADPF、Game Mode、Memory Advice 等工具的定位。
 - [Android Dynamic Performance Framework（ADPF）](https://developer.android.com/games/optimize/adpf)：Thermal API、Performance Hint、Game Mode／Game State 是遊戲與系統互動的正式機制；通常需要遊戲本身整合，外部加速器不能假裝替鳴潮呼叫其內部工作階段。
+- [Game Mode interventions](https://developer.android.com/games/optimize/adpf/gamemode/gamemode-interventions)：Android 官方的 WindowManager backbuffer resize 可降低遊戲 GPU 負載，但實際效果依裝置、遊戲與 OEM 而異；官方提供 `cmd game` 的 intervention 測試方式。這是 WuWa Config Patcher Game Resizer 最值得在 A55 上獨立驗證的機制。
 - [Android Slow Sessions](https://developer.android.com/games/optimize/vitals/slow-session)：慢影格可能來自 CPU、GPU、熱降頻或刷新率／幀率不匹配；不能只看 GPU utilization。
 - [Android Frame Pacing／Swappy](https://developer.android.com/games/sdk/frame-pacing)：UE 4.25+ 可整合 Android Frame Pacing，但是否啟用及其遊戲內部設定需要遊戲端支援；外部 App 無法直接把 Swappy 注入鳴潮。
 - [Perfetto FrameTimeline](https://github.com/google/perfetto/blob/main/docs/data-sources/frametimeline.md)：Android 12+ 可分析 jank 與預期／實際時間軸；文件目前註明 SurfaceView 尚不支援，因此必須先確認鳴潮實際 layer 類型，不能預設資料完整。
