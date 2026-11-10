@@ -38,15 +38,33 @@ internal class GameFpsInterventionController(
         }
         if (!writeState(before)) return GameFpsResult(false, false, "無法保存 OEM FPS 原始設定；未修改")
         if (command(listOf("cmd", "game", "set", "--mode", "2", "--fps", "60", gamePackage)) == null) {
-            val rollback = restore()
+            val rollback = rollbackFailedApply()
             return GameFpsResult(false, false, "設定 60 FPS intervention 失敗；" + rollback.message)
         }
         val after = readConfig()
         if (after?.scaling == before.scaling && after.useAngle == before.useAngle && after.fps == "60") {
             return GameFpsResult(true, true, "已讀回確認 Performance FPS=60，解析度比例維持 1.0")
         }
-        val rollback = restore()
+        val rollback = rollbackFailedApply()
         return GameFpsResult(false, false, "60 FPS intervention 讀回驗證失敗；" + rollback.message)
+    }
+
+    private fun rollbackFailedApply(): GameFpsResult {
+        val original = readState() ?: return GameFpsResult(false, false, "FPS 備份校驗失敗；保留備份")
+        val current = readConfig() ?: return GameFpsResult(false, false, "無法讀回套用後 profile；保留備份")
+        if (current == original) {
+            if (!stateFile.delete()) return GameFpsResult(false, false, "設定未變更，但備份無法刪除")
+            return GameFpsResult(true, false, "設定未改變；已清除備份")
+        }
+        if (current.scaling != original.scaling || current.useAngle != original.useAngle || current.fps.isEmpty()) {
+            return GameFpsResult(false, false, "套用後 profile 出現非預期變更；拒絕覆蓋，備份保留")
+        }
+        if (command(listOf("cmd", "game", "reset", "--mode", "2", gamePackage)) == null) {
+            return GameFpsResult(false, false, "套用失敗後重設 intervention 失敗；備份保留")
+        }
+        if (readConfig() != original) return GameFpsResult(false, false, "套用失敗後還原讀回不符；備份保留")
+        if (!stateFile.delete()) return GameFpsResult(false, false, "OEM 原始設定已恢復，但備份無法刪除")
+        return GameFpsResult(true, false, "套用失敗；OEM 原始設定已確認還原")
     }
 
     fun restore(): GameFpsResult {
