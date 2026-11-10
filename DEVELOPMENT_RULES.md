@@ -181,8 +181,8 @@
 
 ### 2026-11-10 Game Mode 實作決策
 
-- 目標韌體回報鳴潮可用 mode IDs [1, 2]，目前可用標籤為 standard/performance；採用系統已提供的 Performance mode；不直接修改 device_config。FPS=60 intervention 僅在 OEM profile 為 1.0 scaling、無 angle、無 FPS cap 且 game_overlay 原始值為 null 時，透過 cmd game set --mode 2 建立可還原的 mode 2 override。
-- 控制流程：讀取目前模式與可用模式 → 僅允許原模式為 standard 且 mode 2 可用 → 持久化備份 → 執行 `cmd game mode performance` → 重新讀回確認；停止時切回原模式、讀回確認後才刪除備份。
+- A55 的 `cmd game list-modes <package>` 回報的是文字名稱 `[standard, performance]`，不是數字 ID；不得把它與 `cmd game list-configs` 的數字設定 ID 混為一談。解析器必須辨識 symbolic mode 名稱，並以 `cmd game mode performance <package>` 切換。FPS=60 intervention 的 mode 2 是另一個 list-configs／game_overlay 設定路徑，兩者不可混用。
+- 控制流程：讀取目前模式與可用模式 → 僅允許原模式為 standard 且可用模式包含 `performance` → 持久化備份 → 執行 `cmd game mode performance <package>` → 重新讀回確認；停止時切回原模式、讀回確認後才刪除備份。
 - 原本已是 performance 時不建立備份、不宣稱本 App 改變了模式；custom／未知模式一律拒絕修改。
 - 0.9 downscale 已在 A55 造成 UI／觸控操作不適，正式排除。Performance mode 是否降低幀時間尖峰仍須實機 A/B，不得預先宣稱有效。
 
