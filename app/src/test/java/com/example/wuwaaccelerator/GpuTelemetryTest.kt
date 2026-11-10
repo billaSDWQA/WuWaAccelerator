@@ -67,6 +67,27 @@ class GpuTelemetryTest {
     }
 
     @Test
+    fun unverifiedCurrentUtilizationDoesNotMaskAUsableFallbackSource() {
+        val values = mapOf(
+            GpuSysfsPaths.CURRENT_UTILIZATION to "96",
+            GpuSysfsPaths.UTILIZATION_SOURCE to "hw_counter",
+            GpuSysfsPaths.AVAILABLE_UTILIZATION_SOURCES to "hw_counter",
+            GpuSysfsPaths.LOAD_CANDIDATES[1] to "84%"
+        )
+        val snapshot = GpuTelemetryCollector(
+            readText = { values[it] },
+            clockMs = { 3400L }
+        ).sample()
+
+        assertEquals(84, snapshot.gpuLoadPercent(3400L, 3000L))
+        assertEquals(GpuSysfsPaths.LOAD_CANDIDATES[1], snapshot.gpuLoad?.sourcePath)
+        assertTrue(
+            snapshot.loadSourceReadings.first().error
+                ?.contains("未驗證 jiffies") == true
+        )
+    }
+
+    @Test
     fun refusesAdaptiveLoadWhenCandidateSourcesDisagree() {
         val values = mapOf(
             GpuSysfsPaths.LOAD_CANDIDATES[0] to "92",
