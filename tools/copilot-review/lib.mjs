@@ -19,7 +19,7 @@ export function buildPrompt(context) {
   }).join("\n\n");
 
   const request = String(context.triggerComment ?? "")
-    .replace(/^\\/copilot-review\\s*/i, "")
+    .replace(/^\/copilot-review\s*/i, "")
     .slice(0, 5000);
 
   return [
