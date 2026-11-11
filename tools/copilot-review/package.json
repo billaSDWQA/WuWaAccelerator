@@ -1,0 +1,13 @@
+{
+  "name": "wuwa-copilot-review-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "1.0.31",
+    "zod": "4.6.7"
+  }
+}
