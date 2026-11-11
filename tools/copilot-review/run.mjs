@@ -12,21 +12,30 @@ const contextPath = process.env.CONTEXT_PATH;
 const responsePath = process.env.RESPONSE_PATH;
 if (!contextPath || !responsePath) throw new Error("Missing context/response path.");
 
+const skippedDirectories = new Set([".git", "node_modules", ".gradle", "build", ".idea"]);
+
+function escapesRoot(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+}
+
 async function resolveInsideRepo(relativePath, expectedType) {
   if (typeof relativePath !== "string" || relativePath.length === 0 || relativePath.includes("\0")) {
     throw new TypeError("A non-empty relative repository path is required.");
   }
-  if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes("..")) {
+  const segments = relativePath.split(/[\\/]/);
+  if (path.isAbsolute(relativePath) || segments.includes("..")) {
     throw new Error("Absolute paths and parent-directory traversal are not allowed.");
   }
+  if (segments.some((segment) => skippedDirectories.has(segment))) {
+    throw new Error("Repository metadata and build/cache directories are not readable.");
+  }
   const candidate = path.resolve(targetRoot, relativePath);
-  const lexicalRelative = path.relative(targetRoot, candidate);
-  if (lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) {
+  if (escapesRoot(targetRoot, candidate)) {
     throw new Error("Path escapes the checked-out repository.");
   }
   const realPath = await fs.realpath(candidate);
-  const realRelative = path.relative(targetRoot, realPath);
-  if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+  if (escapesRoot(targetRoot, realPath)) {
     throw new Error("Symlink target escapes the checked-out repository.");
   }
   const stat = await fs.stat(realPath);
@@ -35,7 +44,6 @@ async function resolveInsideRepo(relativePath, expectedType) {
   return realPath;
 }
 
-const skippedDirectories = new Set([".git", "node_modules", ".gradle", "build", ".idea"]);
 async function collectFiles(directory = ".", maxFiles = 2500) {
   const root = await resolveInsideRepo(directory, "directory");
   const found = [];
