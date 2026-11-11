@@ -13,7 +13,7 @@ const responsePath = process.env.RESPONSE_PATH;
 if (!contextPath || !responsePath) throw new Error("Missing context/response path.");
 
 async function resolveInsideRepo(relativePath, expectedType) {
-  if (typeof relativePath !== "string" || relativePath.length === 0 || relativePath.includes("\\0")) {
+  if (typeof relativePath !== "string" || relativePath.length === 0 || relativePath.includes("\0")) {
     throw new TypeError("A non-empty relative repository path is required.");
   }
   if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes("..")) {
@@ -66,7 +66,7 @@ const tools = [
       const stat = await fs.stat(file);
       if (stat.size > 160_000) throw new Error("File exceeds the 160 KB read limit.");
       const content = await fs.readFile(file, "utf8");
-      if (content.includes("\\0")) throw new Error("Binary files are not supported.");
+      if (content.includes("\0")) throw new Error("Binary files are not supported.");
       return content;
     },
   }),
@@ -96,8 +96,8 @@ const tools = [
         const stat = await fs.stat(file);
         if (stat.size > 256_000) continue;
         const content = await fs.readFile(file, "utf8");
-        if (content.includes("\\0")) continue;
-        const lines = content.split(/\\r?\\n/);
+        if (content.includes("\0")) continue;
+        const lines = content.split(/\r?\n/);
         for (let index = 0; index < lines.length; index += 1) {
           if (lines[index].toLocaleLowerCase().includes(needle)) {
             matches.push({ path: relativePath, line: index + 1, text: lines[index].slice(0, 500) });
