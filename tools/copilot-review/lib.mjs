@@ -59,5 +59,6 @@ export function limitCommentBody(value, maxChars = MAX_PR_COMMENT_CHARS) {
   const text = String(value ?? "").trim();
   if (text.length <= maxChars) return text;
   const suffix = "\n\n[truncated]";
-  return text.slice(0, Math.max(0, maxChars - suffix.length)) + suffix;
+  if (maxChars <= suffix.length) return text.slice(0, maxChars);
+  return text.slice(0, maxChars - suffix.length) + suffix;
 }
