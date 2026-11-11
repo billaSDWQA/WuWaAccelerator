@@ -29,4 +29,5 @@ test("limitCommentBody respects the configured maximum", () => {
   const result = limitCommentBody("x".repeat(100), 40);
   assert.ok(result.length <= 40);
   assert.match(result, /truncated/);
+  assert.equal(limitCommentBody("abcdef", 5).length, 5);
 });
